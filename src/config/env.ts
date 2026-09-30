@@ -4,15 +4,43 @@ const HOST = process.env.HOST || "0.0.0.0";
 
 const NODE_ENV = process.env.NODE_ENV || "development";
 
-const DATABASE_URL = process.env.DATABASE_URL;
+const POSTGRES_HOST = process.env.POSTGRES_HOST;
 
-if (!DATABASE_URL) {
-    throw new Error("DATABASE_URL is not defined");
+const POSTGRES_PORT = process.env.POSTGRES_PORT;
+
+const POSTGRES_USER = process.env.POSTGRES_USER;
+
+const POSTGRES_PASSWORD = process.env.POSTGRES_PASSWORD;
+
+const POSTGRES_DB = process.env.POSTGRES_DB;
+
+if (!POSTGRES_HOST) {
+    throw new Error("POSTGRES_HOST is not defined");
+}
+
+if (!POSTGRES_PORT) {
+    throw new Error("POSTGRES_PORT is not defined");
+}
+
+if (!POSTGRES_USER) {
+    throw new Error("POSTGRES_USER is not defined");
+}
+
+if (!POSTGRES_PASSWORD) {
+    throw new Error("POSTGRES_PASSWORD is not defined");
+}
+
+if (!POSTGRES_DB) {
+    throw new Error("POSTGRES_DB is not defined");
 }
 
 export {
-    DATABASE_URL,
     HOST,
     NODE_ENV,
-    PORT
+    PORT,
+    POSTGRES_DB,
+    POSTGRES_HOST,
+    POSTGRES_PASSWORD,
+    POSTGRES_PORT,
+    POSTGRES_USER
 };

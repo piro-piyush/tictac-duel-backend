@@ -132,8 +132,6 @@ POSTGRES_USER=tictac_duel
 POSTGRES_PASSWORD=your_postgres_password
 POSTGRES_DB=tictac_duel
 POSTGRES_PORT=5432
-
-DATABASE_URL=postgresql://tictac_duel:your_postgres_password@localhost:5432/tictac_duel
 ```
 
 ### Environment Variables
@@ -147,7 +145,6 @@ DATABASE_URL=postgresql://tictac_duel:your_postgres_password@localhost:5432/tict
 | `POSTGRES_PASSWORD` | PostgreSQL password       | `your_password`    |
 | `POSTGRES_DB`       | PostgreSQL database name  | `tictac_duel`      |
 | `POSTGRES_PORT`     | PostgreSQL port           | `5432`             |
-| `DATABASE_URL`      | PostgreSQL connection URL | `postgresql://...` |
 
 > ⚠️ **Never commit `.env` to Git. Use `.env.example` as the configuration template.**
 
