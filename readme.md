@@ -71,6 +71,8 @@ backend/
 │   └── # Generated Drizzle migrations
 │
 ├── .env
+├── .env.web
+├── .env.db
 ├── .env.example
 ├── compose.yaml
 ├── Dockerfile
@@ -121,17 +123,64 @@ docker compose version
 
 ## ⚙️ Environment Configuration
 
-Create a `.env` file inside the `backend` directory.
+Tic Tac Duel uses separate environment files for local development and Docker.
+
+### Local Development
+
+Create a `.env` file inside the `backend` directory:
 
 ```env
+# Application
 PORT=3000
 HOST=0.0.0.0
 NODE_ENV=development
 
+# Database
+DATABASE_URL=postgresql://tictac_duel:your_postgres_password@localhost:5432/tictac_duel
+
+# Logging
+LOG_LEVEL=info
+```
+
+Start the backend directly with:
+
+```bash
+npm run dev
+```
+
+### Docker Development
+
+For Docker development, use separate environment files:
+
+#### `.env.docker.web`
+
+```env
+# Application
+PORT=3000
+HOST=0.0.0.0
+NODE_ENV=development
+
+# Database
+DATABASE_URL=postgresql://tictac_duel:your_postgres_password@tictac_duel_db:5432/tictac_duel
+
+# Logging
+LOG_LEVEL=info
+```
+
+#### `.env.docker.db`
+
+```env
+# PostgreSQL
 POSTGRES_USER=tictac_duel
 POSTGRES_PASSWORD=your_postgres_password
 POSTGRES_DB=tictac_duel
 POSTGRES_PORT=5432
+```
+
+Start the Docker containers with:
+
+```bash
+docker compose --env-file .env.docker.web up --build
 ```
 
 ### Environment Variables
@@ -141,12 +190,14 @@ POSTGRES_PORT=5432
 | `PORT`              | HTTP server port          | `3000`             |
 | `HOST`              | Server host               | `0.0.0.0`          |
 | `NODE_ENV`          | Runtime environment       | `development`      |
+| `DATABASE_URL`      | PostgreSQL connection URL | `postgresql://...` |
+| `LOG_LEVEL`         | Application log level     | `info`             |
 | `POSTGRES_USER`     | PostgreSQL username       | `tictac_duel`      |
 | `POSTGRES_PASSWORD` | PostgreSQL password       | `your_password`    |
 | `POSTGRES_DB`       | PostgreSQL database name  | `tictac_duel`      |
 | `POSTGRES_PORT`     | PostgreSQL port           | `5432`             |
 
-> ⚠️ **Never commit `.env` to Git. Use `.env.example` as the configuration template.**
+> ⚠️ **Never commit `.env`, `.env.docker.web`, or `.env.docker.db` to Git. Use `.env.example` as the configuration template.**
 
 ---
 
@@ -155,7 +206,6 @@ POSTGRES_PORT=5432
 From the repository root:
 
 ```bash
-cd backend
 npm install
 ```
 
@@ -166,7 +216,7 @@ npm install
 Start only the PostgreSQL database:
 
 ```bash
-docker compose up -d tictac_duel_db
+docker compose --env-file .env.docker.web up -d tictac_duel_db
 ```
 
 Check the container:
@@ -186,6 +236,7 @@ When the backend runs inside Docker Compose, it connects to PostgreSQL using:
 ```text
 tictac_duel_db:5432
 ```
+
 
 ---
 
@@ -881,14 +932,12 @@ docker compose down -v
 
 ## Option 1 — Node.js + Docker PostgreSQL
 
-Run Node.js directly on the host and PostgreSQL through Docker:
+Run the Node.js backend directly on the host and PostgreSQL through Docker:
 
 ```bash
-cd backend
-
 npm install
 
-docker compose up -d tictac_duel_db
+docker compose --env-file .env.docker.web up -d tictac_duel_db
 
 npm run db:migrate
 
@@ -907,22 +956,38 @@ PostgreSQL:
 localhost:5432
 ```
 
+The local backend connects to PostgreSQL through:
+
+```text
+localhost:5432
+```
+
 ---
 
 ## Option 2 — Complete Docker Environment
 
-Run the backend and PostgreSQL through Docker Compose:
+Run both the backend and PostgreSQL through Docker Compose:
 
 ```bash
-cd backend
-
-docker compose up --build
+docker compose --env-file .env.docker.web up --build
 ```
 
-The backend connects to PostgreSQL using:
+The backend connects to PostgreSQL internally using:
 
 ```text
 tictac_duel_db:5432
+```
+
+Backend:
+
+```text
+http://localhost:3000
+```
+
+PostgreSQL:
+
+```text
+localhost:5432
 ```
 
 ---
