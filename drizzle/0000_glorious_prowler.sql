@@ -13,8 +13,9 @@ CREATE TABLE "room_players" (
 	"name" varchar(20) NOT NULL,
 	"symbol" "player_symbol" NOT NULL,
 	"points" integer DEFAULT 0 NOT NULL,
-	"is_ready" boolean DEFAULT false NOT NULL,
-	"joined_at" timestamp with time zone DEFAULT now() NOT NULL
+	"is_ready" boolean DEFAULT true NOT NULL,
+	"joined_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "room_players_room_player_unique" UNIQUE("room_id","player_id")
 );
 --> statement-breakpoint
 CREATE TABLE "rooms" (
@@ -23,12 +24,13 @@ CREATE TABLE "rooms" (
 	"is_private" boolean DEFAULT true NOT NULL,
 	"host_player_id" uuid NOT NULL,
 	"theme" "room_theme" NOT NULL,
+	"max_players" integer DEFAULT 2 NOT NULL,
 	"max_rounds" integer DEFAULT 5 NOT NULL,
 	"current_round" integer DEFAULT 0 NOT NULL,
 	"round_status" "room_status" DEFAULT 'waiting' NOT NULL,
 	"turn_player_id" uuid,
 	"turn_index" integer DEFAULT 0 NOT NULL,
-	"board_size" integer DEFAULT 9 NOT NULL,
+	"board_size" integer DEFAULT 3 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "rooms_room_code_unique" UNIQUE("room_code")
