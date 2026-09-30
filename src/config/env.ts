@@ -1,38 +1,28 @@
+const getRequiredEnv = (key: string): string => {
+    const value = process.env[key];
+
+    if (!value) {
+        throw new Error(`${key} is not defined`);
+    }
+
+    return value;
+};
+
 const PORT = Number(process.env.PORT) || 3000;
 
 const HOST = process.env.HOST || "0.0.0.0";
 
 const NODE_ENV = process.env.NODE_ENV || "development";
 
-const POSTGRES_HOST = process.env.POSTGRES_HOST;
+const POSTGRES_HOST = getRequiredEnv("POSTGRES_HOST");
 
-const POSTGRES_PORT = process.env.POSTGRES_PORT;
+const POSTGRES_PORT = getRequiredEnv("POSTGRES_PORT");
 
-const POSTGRES_USER = process.env.POSTGRES_USER;
+const POSTGRES_USER = getRequiredEnv("POSTGRES_USER");
 
-const POSTGRES_PASSWORD = process.env.POSTGRES_PASSWORD;
+const POSTGRES_PASSWORD = getRequiredEnv("POSTGRES_PASSWORD");
 
-const POSTGRES_DB = process.env.POSTGRES_DB;
-
-if (!POSTGRES_HOST) {
-    throw new Error("POSTGRES_HOST is not defined");
-}
-
-if (!POSTGRES_PORT) {
-    throw new Error("POSTGRES_PORT is not defined");
-}
-
-if (!POSTGRES_USER) {
-    throw new Error("POSTGRES_USER is not defined");
-}
-
-if (!POSTGRES_PASSWORD) {
-    throw new Error("POSTGRES_PASSWORD is not defined");
-}
-
-if (!POSTGRES_DB) {
-    throw new Error("POSTGRES_DB is not defined");
-}
+const POSTGRES_DB = getRequiredEnv("POSTGRES_DB");
 
 export {
     HOST,

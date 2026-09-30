@@ -9,6 +9,8 @@ import SocketService from "./sockets/socket_service.js";
 const server = http.createServer(app);
 const socketService = new SocketService(server);
 
+let isShuttingDown = false;
+
 function startServer(): void {
     server.listen(PORT, HOST, () => {
         const baseUrl = `http://localhost:${PORT}`;
@@ -30,20 +32,37 @@ function startServer(): void {
     });
 
     server.on("error", (error: NodeJS.ErrnoException) => {
+        if (isShuttingDown) {
+            return;
+        }
+
         Logger.error("HTTP server error", error);
         process.exit(1);
     });
 }
 
 async function shutdown(signal: string): Promise<void> {
+    if (isShuttingDown) {
+        return;
+    }
+
+    isShuttingDown = true;
+
     Logger.info(`${signal} received. Shutting down...`);
 
     try {
         await socketService.close();
 
+        if (!server.listening) {
+            Logger.info("HTTP server is already stopped");
+            Logger.success("Server shut down successfully");
+            process.exit(0);
+            return;
+        }
+
         await new Promise<void>((resolve, reject) => {
             server.close((error) => {
-                if (error) {
+                if (error && (error as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING") {
                     reject(error);
                     return;
                 }
@@ -60,11 +79,11 @@ async function shutdown(signal: string): Promise<void> {
     }
 }
 
-process.on("SIGINT", () => {
+process.once("SIGINT", () => {
     void shutdown("SIGINT");
 });
 
-process.on("SIGTERM", () => {
+process.once("SIGTERM", () => {
     void shutdown("SIGTERM");
 });
 

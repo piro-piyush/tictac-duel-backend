@@ -1,8 +1,7 @@
 {
-  "watch": ["src"],
+  "watch": ["src/**/*"],
   "ext": "ts",
-  "ignore": ["dist/*"],
+  "ignore": ["dist"],
   "exec": "tsx src/index.ts",
-  "legacyWatch": true,
-  "delay": 300
+  "delay": 100
 }
