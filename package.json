@@ -2,14 +2,15 @@
   "name": "tictac-duel-backend",
   "version": "1.0.0",
   "description": "Backend API for TicTac Duel",
-  "main": "dist/index.js",
-  "scripts": {
-    "start": "tsx src/index.ts",
-    "dev": "nodemon",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push --config=./drizzle.config.ts"
-  },
+  "main": "src/index.js",
+   "scripts": {
+  "dev": "npx nodemon",
+  "start": "tsx src/index.ts",
+  "db:generate": "drizzle-kit generate",
+  "db:migrate": "drizzle-kit migrate",
+  "db:push": "drizzle-kit push --config=./drizzle.config.ts"
+},
+
   "keywords": [
     "tictactoe",
     "multiplayer",
