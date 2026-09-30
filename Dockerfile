@@ -10,6 +10,4 @@ RUN npm ci
 
 COPY . .
 
-EXPOSE 8000
-
 CMD ["sh", "-c", "npm run db:migrate && npm start"]
