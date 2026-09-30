@@ -8,13 +8,10 @@ services:
     restart: unless-stopped
 
     ports:
-      - "${PORT:?PORT is required}:3000"
+      - "${PORT:-3000}:3000"
 
     env_file:
-      - .env
-
-    environment:
-      POSTGRES_HOST: tictac_duel_db
+      - .env.docker.web
 
     depends_on:
       tictac_duel_db:
@@ -40,8 +37,11 @@ services:
     container_name: tictac_duel_db
     restart: unless-stopped
 
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
     env_file:
-      - .env
+      - .env.docker.db
 
     volumes:
       - tictac_duel_postgres_data:/var/lib/postgresql
