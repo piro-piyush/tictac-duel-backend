@@ -1,41 +1,30 @@
-import { Router } from "express";
-import PlayerController from "../controllers/player_controller.js";
+import { Router } from 'express';
+
+import PlayerController from '../controllers/player_controller.js';
 
 const playerRoutes = Router();
 
-// ============================================================================
-// CREATE PLAYER
-// ============================================================================
+// =============================================================================
+// Player Routes
+// =============================================================================
 
 playerRoutes.post(
-    "/",
+    '/',
     PlayerController.create.bind(PlayerController),
 );
 
-// ============================================================================
-// GET PLAYER
-// ============================================================================
-
 playerRoutes.get(
-    "/:id",
-    PlayerController.getPlayer.bind(PlayerController),
-);
-
-// ============================================================================
-// GET PLAYERS
-// ============================================================================
-
-playerRoutes.get(
-    "/",
+    '/',
     PlayerController.getPlayers.bind(PlayerController),
 );
 
-// ============================================================================
-// DELETE PLAYER
-// ============================================================================
+playerRoutes.get(
+    '/:id',
+    PlayerController.getPlayer.bind(PlayerController),
+);
 
 playerRoutes.delete(
-    "/:id",
+    '/:id',
     PlayerController.deletePlayer.bind(PlayerController),
 );
 

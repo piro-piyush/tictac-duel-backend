@@ -1,14 +1,20 @@
 interface SocketSuccessResponse<T> {
-    success: true;
-    data: T;
+    readonly success: true;
+    readonly data: T;
 }
 
 interface SocketErrorResponse {
-    success: false;
-    message: string;
+    readonly success: false;
+    readonly message: string;
+    readonly statusCode: number;
+    readonly errors?: unknown;
 }
 
-class SocketResponse {
+type SocketResponse<T> =
+    | SocketSuccessResponse<T>
+    | SocketErrorResponse;
+
+class SocketResponseBuilder {
     static success<T>(
         data: T,
     ): SocketSuccessResponse<T> {
@@ -20,12 +26,18 @@ class SocketResponse {
 
     static error(
         message: string,
+        statusCode: number,
+        errors?: unknown,
     ): SocketErrorResponse {
         return {
             success: false,
             message,
+            statusCode,
+            ...(errors !== undefined && {
+                errors,
+            }),
         };
     }
 }
 
-export default SocketResponse;
+export default SocketResponseBuilder;

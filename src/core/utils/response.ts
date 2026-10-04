@@ -1,25 +1,30 @@
-import type {
-  Response as ExpressResponse
-} from "express";
-interface SuccessOptions<T = null> {
-  message?: string;
-  data?: T;
-  statusCode?: number;
+import type { Response as ExpressResponse } from 'express';
+
+import { HTTP_STATUS } from '../constants/http_status.js';
+
+interface SuccessOptions<T> {
+  readonly message?: string;
+  readonly data?: T | null;
+  readonly statusCode?: number;
 }
 
-interface ErrorOptions<T = null> {
-  message?: string;
-  statusCode?: number;
-  errors?: T;
+interface ErrorOptions<T> {
+  readonly message?: string;
+  readonly statusCode?: number;
+  readonly errors?: T | null;
 }
 
-class Response {
-  static success<T = null>(
+class ApiResponse {
+  // ===========================================================================
+  // Success Responses
+  // ===========================================================================
+
+  static success<T>(
     res: ExpressResponse,
     {
       message = 'Success',
-      data = null as T,
-      statusCode = 200,
+      data = null,
+      statusCode = HTTP_STATUS.OK,
     }: SuccessOptions<T> = {},
   ): ExpressResponse {
     return res.status(statusCode).json({
@@ -29,26 +34,38 @@ class Response {
     });
   }
 
-  static created<T = null>(
+  static created<T>(
     res: ExpressResponse,
     {
       message = 'Created successfully',
-      data = null as T,
+      data = null,
     }: SuccessOptions<T> = {},
   ): ExpressResponse {
     return this.success(res, {
       message,
       data,
-      statusCode: 201,
+      statusCode: HTTP_STATUS.CREATED,
     });
   }
 
-  static error<T = null>(
+  static noContent(
+    res: ExpressResponse,
+  ): ExpressResponse {
+    return res
+      .status(HTTP_STATUS.NO_CONTENT)
+      .send();
+  }
+
+  // ===========================================================================
+  // Error Responses
+  // ===========================================================================
+
+  static error<T>(
     res: ExpressResponse,
     {
       message = 'Something went wrong',
-      statusCode = 500,
-      errors = null as T,
+      statusCode = HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      errors = null,
     }: ErrorOptions<T> = {},
   ): ExpressResponse {
     return res.status(statusCode).json({
@@ -58,13 +75,13 @@ class Response {
     });
   }
 
-  static badRequest<T = null>(
+  static badRequest<T>(
     res: ExpressResponse,
     message = 'Bad request',
     errors: T | null = null,
   ): ExpressResponse {
     return this.error(res, {
-      statusCode: 400,
+      statusCode: HTTP_STATUS.BAD_REQUEST,
       message,
       errors,
     });
@@ -75,7 +92,7 @@ class Response {
     message = 'Unauthorized',
   ): ExpressResponse {
     return this.error(res, {
-      statusCode: 401,
+      statusCode: HTTP_STATUS.UNAUTHORIZED,
       message,
     });
   }
@@ -85,7 +102,7 @@ class Response {
     message = 'Forbidden',
   ): ExpressResponse {
     return this.error(res, {
-      statusCode: 403,
+      statusCode: HTTP_STATUS.FORBIDDEN,
       message,
     });
   }
@@ -95,10 +112,30 @@ class Response {
     message = 'Resource not found',
   ): ExpressResponse {
     return this.error(res, {
-      statusCode: 404,
+      statusCode: HTTP_STATUS.NOT_FOUND,
+      message,
+    });
+  }
+
+  static conflict(
+    res: ExpressResponse,
+    message = 'Conflict',
+  ): ExpressResponse {
+    return this.error(res, {
+      statusCode: HTTP_STATUS.CONFLICT,
+      message,
+    });
+  }
+
+  static tooManyRequests(
+    res: ExpressResponse,
+    message = 'Too many requests',
+  ): ExpressResponse {
+    return this.error(res, {
+      statusCode: HTTP_STATUS.TOO_MANY_REQUESTS,
       message,
     });
   }
 }
 
-export default Response;
+export default ApiResponse;

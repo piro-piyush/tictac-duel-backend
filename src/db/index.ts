@@ -1,13 +1,13 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 
-import { DATABASE_URL, NODE_ENV } from "../config/env.js";
+import { DATABASE_URL, NODE_ENV } from '../config/env.js';
 
-const isProduction = NODE_ENV === "production";
+const isProduction = NODE_ENV === 'production';
 
-const pool = new Pool({
+export const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: isProduction,
+  ssl: isProduction ? { rejectUnauthorized: false } : false,
 });
 
 export const db = drizzle(pool);
