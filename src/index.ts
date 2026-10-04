@@ -1,47 +1,70 @@
-import "dotenv/config";
-import http from "http";
+import 'dotenv/config';
 
-import app from "./app.js";
-import { HOST, NODE_ENV, PORT } from "./config/env.js";
-import Logger from "./core/utils/logger.js";
-import SocketService from "./sockets/socket_service.js";
+import http from 'http';
+
+import app from './app.js';
+import { HOST, NODE_ENV, PORT } from './config/env.js';
+import Logger from './core/utils/logger.js';
+import { pool } from './db/index.js';
+import SocketService from './sockets/socket_service.js';
 
 const server = http.createServer(app);
 const socketService = new SocketService(server);
 
+const SHUTDOWN_TIMEOUT = 10_000;
+
 let isShuttingDown = false;
 
-function startServer(): void {
-    server.listen(PORT, HOST, () => {
-        const baseUrl = `http://localhost:${PORT}`;
+// ============================================================================
+// Server
+// ============================================================================
 
-        Logger.success("Tic Tac Duel server started");
-        Logger.info("Server Information");
+function startServer(): void {
+    server.on('error', handleServerError);
+
+    server.listen(PORT, HOST, () => {
+        const baseUrl = `http://${HOST}:${PORT}`;
+
+        Logger.success('Tic Tac Duel server started');
+        Logger.info('Server Information');
         Logger.info(`  Environment : ${NODE_ENV}`);
         Logger.info(`  Host        : ${HOST}`);
         Logger.info(`  Port        : ${PORT}`);
 
-        Logger.info("HTTP");
+        Logger.info('HTTP');
         Logger.info(`  Server      : ${baseUrl}`);
         Logger.info(`  Health      : ${baseUrl}/health`);
         Logger.info(`  API         : ${baseUrl}/api`);
         Logger.info(`  Rooms       : ${baseUrl}/api/rooms`);
 
-        Logger.info("Socket.IO");
+        Logger.info('Socket.IO');
         Logger.info(`  Endpoint    : ${baseUrl}/socket.io/`);
-    });
-
-    server.on("error", (error: NodeJS.ErrnoException) => {
-        if (isShuttingDown) {
-            return;
-        }
-
-        Logger.error("HTTP server error", error);
-        process.exit(1);
     });
 }
 
-async function shutdown(signal: string): Promise<void> {
+// ============================================================================
+// Server Error
+// ============================================================================
+
+function handleServerError(error: NodeJS.ErrnoException): void {
+    if (isShuttingDown) {
+        return;
+    }
+
+    Logger.error('HTTP server error', error);
+
+    if (error.code === 'EADDRINUSE') {
+        Logger.error(`Port ${PORT} is already in use`);
+    }
+
+    process.exitCode = 1;
+}
+
+// ============================================================================
+// Shutdown
+// ============================================================================
+
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
     if (isShuttingDown) {
         return;
     }
@@ -50,41 +73,76 @@ async function shutdown(signal: string): Promise<void> {
 
     Logger.info(`${signal} received. Shutting down...`);
 
-    try {
-        await socketService.close();
+    const forceShutdownTimer = setTimeout(() => {
+        Logger.error('Shutdown timeout exceeded. Forcing process exit.');
+        process.exit(1);
+    }, SHUTDOWN_TIMEOUT);
 
-        if (!server.listening) {
-            Logger.info("HTTP server is already stopped");
-            Logger.success("Server shut down successfully");
-            process.exit(0);
-            return;
+    forceShutdownTimer.unref();
+
+    try {
+        // Stop accepting new HTTP connections.
+        if (server.listening) {
+            await closeHttpServer();
         }
 
-        await new Promise<void>((resolve, reject) => {
-            server.close((error) => {
-                if (error && (error as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING") {
-                    reject(error);
-                    return;
-                }
+        // Close Socket.IO connections.
+        await socketService.close();
 
-                resolve();
-            });
-        });
+        // Close PostgreSQL connections.
+        await pool.end();
 
-        Logger.success("Server shut down successfully");
-        process.exit(0);
+        clearTimeout(forceShutdownTimer);
+
+        Logger.success('Server shut down successfully');
     } catch (error: unknown) {
-        Logger.error("Error during shutdown", error);
-        process.exit(1);
+        clearTimeout(forceShutdownTimer);
+
+        Logger.error('Error during shutdown', error);
+
+        process.exitCode = 1;
     }
 }
 
-process.once("SIGINT", () => {
-    void shutdown("SIGINT");
+// ============================================================================
+// HTTP Server Close
+// ============================================================================
+
+function closeHttpServer(): Promise<void> {
+    return new Promise((resolve, reject) => {
+        server.close((error) => {
+            if (!error) {
+                resolve();
+                return;
+            }
+
+            if (
+                (error as NodeJS.ErrnoException).code ===
+                'ERR_SERVER_NOT_RUNNING'
+            ) {
+                resolve();
+                return;
+            }
+
+            reject(error);
+        });
+    });
+}
+
+// ============================================================================
+// Process Signals
+// ============================================================================
+
+process.once('SIGINT', () => {
+    void shutdown('SIGINT');
 });
 
-process.once("SIGTERM", () => {
-    void shutdown("SIGTERM");
+process.once('SIGTERM', () => {
+    void shutdown('SIGTERM');
 });
+
+// ============================================================================
+// Start
+// ============================================================================
 
 startServer();

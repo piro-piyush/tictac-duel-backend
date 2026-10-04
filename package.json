@@ -2,7 +2,7 @@
   "name": "tictac-duel-backend",
   "version": "1.0.0",
   "description": "Backend API for TicTac Duel",
-  "main": "src/index.js",
+  "main": "src/index.ts",
   "scripts": {
     "dev": "npx nodemon",
     "start": "tsx src/index.ts",

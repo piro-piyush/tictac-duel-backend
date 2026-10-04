@@ -1,52 +1,45 @@
-import cors from "cors";
+import cors from 'cors';
 import express, {
   type Response as ExpressResponse,
   type Request,
-} from "express";
+} from 'express';
+import helmet from 'helmet';
 
-import {
-  HOST,
-  NODE_ENV,
-  PORT,
-} from "./config/env.js";
-
-import Logger from "./core/utils/logger.js";
-import Response from "./core/utils/response.js";
-import playerRoutes from "./routes/player_routes.js";
-import roomRoutes from "./routes/room_routes.js";
+import { HTTP_STATUS } from './core/constants/http_status.js';
+import ApiError from './core/errors/api_error.js';
+import Logger from './core/utils/logger.js';
+import Response from './core/utils/response.js';
+import playerRoutes from './routes/player_routes.js';
+import roomRoutes from './routes/room_routes.js';
 
 const app = express();
 
-// ─────────────────────────────────────────────
+// ============================================================================
 // Middleware
-// ─────────────────────────────────────────────
+// ============================================================================
 
 app.use(
-  cors({
-    origin: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  }),
+  cors()
 );
-
+app.use(helmet());
 app.use(express.json());
 
-// ─────────────────────────────────────────────
+// ============================================================================
 // Request Logging
-// ─────────────────────────────────────────────
+// ============================================================================
 
 app.use(
   (
     req: Request,
     res: ExpressResponse,
     next,
-  ) => {
+  ): void => {
     const startTime = Date.now();
 
-    res.on("finish", () => {
+    res.on('finish', () => {
       const duration = Date.now() - startTime;
 
-      Logger.info(
+      console.log(
         `${req.method} ${req.originalUrl} ${res.statusCode} - ${duration}ms`,
       );
     });
@@ -55,57 +48,89 @@ app.use(
   },
 );
 
-// ─────────────────────────────────────────────
+// ============================================================================
+// Health & Information
+// ============================================================================
+
+app.get(
+  '/',
+  (_req: Request, res: ExpressResponse) => {
+    return Response.success(res, {
+      message: 'Tic Tac Duel server is running',
+    });
+  },
+);
+
+app.get(
+  '/health',
+  (_req: Request, res: ExpressResponse) => {
+    return Response.success(res, {
+      message: 'Server is healthy',
+    });
+  },
+);
+
+app.get(
+  '/api',
+  (_req: Request, res: ExpressResponse) => {
+    return Response.success(res, {
+      message: 'Tic Tac Duel API',
+    });
+  },
+);
+
+// ============================================================================
 // Routes
-// ─────────────────────────────────────────────
+// ============================================================================
 
-app.get(
-  "/",
-  (_req: Request, res: ExpressResponse) => {
-    return Response.success(res, {
-      message: "Tic Tac Duel server is running",
-    });
+app.use('/api/rooms', roomRoutes);
+app.use('/api/players', playerRoutes);
+
+// ============================================================================
+// 404 Handler
+// ============================================================================
+
+app.use(
+  (
+    _req: Request,
+    res: ExpressResponse,
+  ) => {
+    return Response.notFound(res, 'Route not found');
   },
 );
 
-app.get(
-  "/health",
-  (_req: Request, res: ExpressResponse) => {
-    return Response.success(res, {
-      message: "Server is healthy",
+// ============================================================================
+// Error Handler
+// ============================================================================
+
+app.use(
+  (
+    error: unknown,
+    _req: Request,
+    res: ExpressResponse,
+    _next: unknown,
+  ) => {
+    if (error instanceof ApiError) {
+      Logger.warn(
+        `API error: ${error.message} (${error.statusCode})`,
+      );
+
+      return Response.error(res, {
+        statusCode: error.statusCode,
+        message: error.message,
+        errors: error.errors,
+      });
+    }
+
+    Logger.error(
+      'Unhandled server error',
+      error,
+    );
+
+    return Response.error(res, {
+      statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      message: 'Internal server error',
     });
   },
 );
-
-app.get(
-  "/api",
-  (_req: Request, res: ExpressResponse) => {
-    return Response.success(res, {
-      message: "Tic Tac Duel API",
-    });
-  },
-);
-
-app.use("/api/rooms", roomRoutes);
-app.use("/api/players", playerRoutes);
-
-// ─────────────────────────────────────────────
-// Available URLs
-// ─────────────────────────────────────────────
-
-function logAvailableUrls(): void {
-  const baseUrl = `http://localhost:${PORT}`;
-
-  Logger.success("Available URLs:");
-  Logger.info(`  Server      : ${baseUrl}`);
-  Logger.info(`  Health      : ${baseUrl}/health`);
-  Logger.info(`  API         : ${baseUrl}/api`);
-  Logger.info(`  Rooms       : ${baseUrl}/api/rooms`);
-  Logger.info(`  Environment : ${NODE_ENV}`);
-  Logger.info(`  Host        : ${HOST}`);
-  Logger.info(`  Port        : ${PORT}`);
-}
-
-logAvailableUrls();
-
 export default app;
