@@ -1,4 +1,6 @@
 import { z } from "zod";
+
+import { GameConstants } from "../core/constants/game_constants.js";
 import {
     playerSymbolEnum,
     roomStatusEnum,
@@ -6,10 +8,21 @@ import {
 } from "../db/schema.js";
 
 // -----------------------------------------------------------------------------
+// Common Constants
+// -----------------------------------------------------------------------------
+
+export const GameDismissReason = {
+    OPPONENT_DISCONNECTED: "opponentDisconnected",
+    OPPONENT_QUIT: "opponentQuit",
+} as const;
+
+// -----------------------------------------------------------------------------
 // Common Validators
 // -----------------------------------------------------------------------------
 
 export const uuidValidator = z.uuid();
+
+export const playerIdValidator = uuidValidator;
 
 export const playerSymbolValidator = z.enum(
     playerSymbolEnum.enumValues,
@@ -23,13 +36,41 @@ export const roomStatusValidator = z.enum(
     roomStatusEnum.enumValues,
 );
 
-export const playerIdValidator = uuidValidator;
+export const gameDismissReasonValidator = z.enum(
+    Object.values(GameDismissReason),
+);
+
+export const playerNameValidator = z
+    .string()
+    .trim()
+    .min(
+        GameConstants.minPlayerNameLength,
+        `Player name must be at least ${GameConstants.minPlayerNameLength} characters`,
+    )
+    .max(
+        GameConstants.maxPlayerNameLength,
+        `Player name must not exceed ${GameConstants.maxPlayerNameLength} characters`,
+    );
 
 export const roomCodeValidator = z
     .string()
     .trim()
     .toUpperCase()
-    .length(6, "Room code must be 6 characters");
+    .regex(
+        GameConstants.roomCodePattern,
+        "Invalid room code",
+    );
+
+export const roundsValidator = z
+    .number()
+    .int("Maximum rounds must be an integer")
+    .refine(
+        (rounds) =>
+            GameConstants.roundOptions.includes(
+                rounds as (typeof GameConstants.roundOptions)[number],
+            ),
+        `Rounds must be one of ${GameConstants.roundOptions.join(", ")}`,
+    );
 
 // -----------------------------------------------------------------------------
 // Socket Validators
@@ -40,43 +81,22 @@ export const connectRoomValidator = z.object({
     playerId: playerIdValidator,
 });
 
-export type ConnectRoomParams = z.infer<
-    typeof connectRoomValidator
->;
-
 // -----------------------------------------------------------------------------
 // Request Validators
 // -----------------------------------------------------------------------------
 
 export const createRoomValidator = z.object({
     playerId: playerIdValidator,
-
-    playerName: z
-        .string()
-        .trim()
-        .min(2, "Player name must be at least 2 characters")
-        .max(20, "Player name must not exceed 20 characters"),
-
+    playerName: playerNameValidator,
     symbol: playerSymbolValidator,
     theme: roomThemeValidator,
-
-    maxRounds: z
-        .number()
-        .int("Maximum rounds must be an integer")
-        .positive("Maximum rounds must be greater than 0"),
-
+    maxRounds: roundsValidator,
     isPrivate: z.boolean(),
 });
 
 export const joinRoomValidator = z.object({
     playerId: playerIdValidator,
-
-    playerName: z
-        .string()
-        .trim()
-        .min(2, "Player name must be at least 2 characters")
-        .max(20, "Player name must not exceed 20 characters"),
-
+    playerName: playerNameValidator,
     roomCode: roomCodeValidator,
 });
 
@@ -85,15 +105,25 @@ export const makeMoveValidator = z.object({
     index: z
         .number()
         .int("Move index must be an integer")
-        .nonnegative("Move index cannot be negative"),
+        .nonnegative("Move index cannot be negative")
+        .max(
+            GameConstants.totalCells - 1,
+            "Move index is outside the board",
+        ),
     playerId: playerIdValidator,
 });
 
 export const submitGameResultValidator = z.object({
     roomCode: roomCodeValidator,
-    winnerPlayerId: playerIdValidator.nullable(),
     winningIndexes: z.array(
-        z.number().int().nonnegative(),
+        z
+            .number()
+            .int("Winning index must be an integer")
+            .nonnegative("Winning index cannot be negative")
+            .max(
+                GameConstants.totalCells - 1,
+                "Winning index is outside the board",
+            ),
     ),
     playerId: playerIdValidator,
 });
@@ -111,50 +141,103 @@ export const roomPlayerModel = z.object({
     id: playerIdValidator,
     name: z.string(),
     symbol: playerSymbolValidator,
-    points: z.number(),
+    points: z.number().int().nonnegative(),
     isReady: z.boolean(),
 });
 
 export const roomModel = z.object({
     id: uuidValidator,
-    roomCode: z.string(),
+    roomCode: roomCodeValidator,
     isPrivate: z.boolean(),
     hostPlayerId: playerIdValidator,
     theme: roomThemeValidator,
-    maxPlayers: z.number(),
-    maxRounds: z.number(),
-    currentRound: z.number(),
+    maxRounds: roundsValidator,
+    currentRound: z.number().int().nonnegative(),
     roundStatus: roomStatusValidator,
     turnPlayerId: playerIdValidator.nullable(),
-    turnIndex: z.number(),
-    boardSize: z.number(),
+    turnIndex: z
+        .number()
+        .int()
+        .nonnegative(),
     players: z.array(roomPlayerModel),
     createdAt: z.date(),
     updatedAt: z.date(),
 });
 
 export const moveResultModel = z.object({
-    room: roomModel,
-
-    move: z.object({
-        index: z.number(),
-        symbol: playerSymbolValidator,
-    }),
+    index: z
+        .number()
+        .int()
+        .nonnegative()
+        .max(GameConstants.totalCells - 1),
+    playerId: playerIdValidator,
+    symbol: playerSymbolValidator,
+    turnPlayerId: playerIdValidator,
+    turnIndex: z.number().int().nonnegative(),
 });
 
 export const gameResultModel = z.object({
-    room: roomModel,
-    winnerPlayerId: playerIdValidator.nullable(),
+    winnerId: playerIdValidator.nullable(),
+    roundStatus: roomStatusValidator.nullable(),
     winningIndexes: z.array(
-        z.number().int().nonnegative(),
+        z
+            .number()
+            .int()
+            .nonnegative()
+            .max(GameConstants.totalCells - 1),
     ),
-    completedRound: z.number(),
     gameFinished: z.boolean(),
 });
 
+export const roundStartedResponseModel = z.object({
+    room: roomModel,
+    playerOneReady: z.boolean(),
+    playerTwoReady: z.boolean(),
+    turnPlayerId: playerIdValidator,
+    turnIndex: z.number().int().nonnegative(),
+});
+
+export const gameDismissedResponseModel = z.object({
+    winnerPlayerId: playerIdValidator,
+    disconnectedPlayerId: playerIdValidator,
+    reason: gameDismissReasonValidator,
+});
+
 // -----------------------------------------------------------------------------
-// Types
+// Response Types
 // -----------------------------------------------------------------------------
+
+export type RoundStartedResponse = z.infer<
+    typeof roundStartedResponseModel
+>;
+
+export type RoomPlayer = z.infer<
+    typeof roomPlayerModel
+>;
+
+export type Room = z.infer<
+    typeof roomModel
+>;
+
+export type MoveResult = z.infer<
+    typeof moveResultModel
+>;
+
+export type GameResult = z.infer<
+    typeof gameResultModel
+>;
+
+export type GameDismissedResponse = z.infer<
+    typeof gameDismissedResponseModel
+>;
+
+// -----------------------------------------------------------------------------
+// Request Types
+// -----------------------------------------------------------------------------
+
+export type ConnectRoomParams = z.infer<
+    typeof connectRoomValidator
+>;
 
 export type CreateRoomParams = z.infer<
     typeof createRoomValidator
@@ -174,20 +257,4 @@ export type SubmitGameResultParams = z.infer<
 
 export type SetPlayerReadyParams = z.infer<
     typeof setPlayerReadyValidator
->;
-
-export type RoomPlayer = z.infer<
-    typeof roomPlayerModel
->;
-
-export type Room = z.infer<
-    typeof roomModel
->;
-
-export type MoveResult = z.infer<
-    typeof moveResultModel
->;
-
-export type GameResult = z.infer<
-    typeof gameResultModel
 >;

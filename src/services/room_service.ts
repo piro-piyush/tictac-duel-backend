@@ -3,6 +3,7 @@ import {
   eq,
   sql,
 } from "drizzle-orm";
+import { GameConstants } from "../core/constants/game_constants.js";
 import { db } from "../db/index.js";
 import {
   players,
@@ -21,6 +22,7 @@ import type {
   RoomPlayer,
   SubmitGameResultParams,
 } from "../validators/room_validator.js";
+
 
 // -----------------------------------------------------------------------------
 // Types
@@ -67,7 +69,7 @@ class RoomService {
       roundStatus: RoomStatus.WAITING,
       turnPlayerId: playerId,
       turnIndex: 0,
-      boardSize: 3,
+
     };
 
     return db.transaction(async (tx) => {
@@ -115,7 +117,7 @@ class RoomService {
       throw new Error("Game is already in progress");
     }
 
-    if (room.players.length >= room.maxPlayers) {
+    if (room.players.length >= GameConstants.maxPlayers) {
       throw new Error("Room is full");
     }
 
@@ -173,15 +175,13 @@ class RoomService {
 
     if (
       index < 0 ||
-      index >= room.boardSize * room.boardSize
+      index >= GameConstants.totalCells
     ) {
       throw new Error("Invalid board position");
     }
 
-    const player = this._getRoomPlayer(
-      room,
-      playerId,
-    );
+    const player =
+      this._getRoomPlayer(room, playerId);
 
     if (room.turnPlayerId !== player.id) {
       throw new Error("Not your turn");
@@ -208,17 +208,12 @@ class RoomService {
       })
       .where(eq(rooms.id, room.id));
 
-    const updatedRoom = await this._getRoom(
-      room.id,
-      db,
-    );
-
     return {
-      room: updatedRoom,
-      move: {
-        index,
-        symbol: player.symbol,
-      },
+      index,
+      playerId: player.id,
+      symbol: player.symbol,
+      turnPlayerId: nextPlayer.id,
+      turnIndex: nextTurnIndex,
     };
   }
 
@@ -228,9 +223,8 @@ class RoomService {
 
   async submitGameResult({
     roomCode,
-    winnerPlayerId,
-    winningIndexes,
     playerId,
+    winningIndexes,
   }: SubmitGameResultParams): Promise<GameResult> {
     const room =
       await this._requireRoomByCode(roomCode);
@@ -239,78 +233,44 @@ class RoomService {
       throw new Error("Round is not active");
     }
 
-    if (room.players.length !== room.maxPlayers) {
+    if (room.players.length !== GameConstants.maxPlayers) {
       throw new Error(
-        "Room does not have enough players",
+        `Exactly ${GameConstants.maxPlayers} players are required`,
       );
     }
 
     const submittingPlayer =
       this._getRoomPlayer(room, playerId);
 
-    // -------------------------------------------------------------------------
-    // Draw
-    // -------------------------------------------------------------------------
+    const isDraw = winningIndexes.length === 0;
 
-    if (winnerPlayerId === null) {
-      await db.transaction(async (tx) => {
-        await this._resetPlayersReady(
-          room.id,
-          tx,
-        );
-
-        await tx
-          .update(rooms)
-          .set({
-            roundStatus: RoomStatus.RESULT,
-            turnPlayerId: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(rooms.id, room.id));
-      });
-
-      return this._buildGameResult(
-        room.id,
-        null,
-        [],
-        room.currentRound,
-        room.maxRounds,
+    const winnerIndex = isDraw
+      ? 0
+      : room.players.findIndex(
+        (player) => player.id === submittingPlayer.id,
       );
-    }
 
-    // -------------------------------------------------------------------------
-    // Win
-    // -------------------------------------------------------------------------
-
-    if (
-      submittingPlayer.id !== winnerPlayerId
-    ) {
-      throw new Error("Invalid winner");
-    }
-
-    const winner = this._getRoomPlayer(
-      room,
-      winnerPlayerId,
-    );
-
-    const winnerIndex = room.players.findIndex(
-      (player) => player.id === winnerPlayerId,
-    );
-
-    if (winnerIndex === -1) {
+    if (!isDraw && winnerIndex === -1) {
       throw new Error("Winner not found");
     }
 
+    const gameFinished =
+      room.currentRound >= room.maxRounds;
+
     await db.transaction(async (tx) => {
-      await tx
-        .update(roomPlayers)
-        .set({
-          points: sql`${roomPlayers.points} + 1`,
-          isReady: false,
-        })
-        .where(
-          eq(roomPlayers.id, winner.id),
-        );
+      if (!isDraw) {
+        await tx
+          .update(roomPlayers)
+          .set({
+            points: sql`${roomPlayers.points} + 1`,
+          })
+          .where(
+            and(
+              eq(roomPlayers.roomId, room.id),
+              eq(roomPlayers.playerId, submittingPlayer.id),
+            ),
+          );
+      }
 
       await this._resetPlayersReady(
         room.id,
@@ -321,22 +281,24 @@ class RoomService {
         .update(rooms)
         .set({
           roundStatus: RoomStatus.RESULT,
-          turnIndex: winnerIndex,
-          turnPlayerId: winnerPlayerId,
+          turnPlayerId: isDraw
+            ? null
+            : submittingPlayer.id,
+          turnIndex: isDraw ? 0 : winnerIndex,
           updatedAt: new Date(),
         })
         .where(eq(rooms.id, room.id));
     });
 
-    return this._buildGameResult(
-      room.id,
-      winnerPlayerId,
+    return {
+      winnerId: isDraw
+        ? null
+        : submittingPlayer.id,
+      roundStatus: RoomStatus.RESULT,
       winningIndexes,
-      room.currentRound,
-      room.maxRounds,
-    );
+      gameFinished,
+    };
   }
-
   // ---------------------------------------------------------------------------
   // Get Room By ID
   // ---------------------------------------------------------------------------
@@ -438,74 +400,91 @@ class RoomService {
     roomId: string,
     playerId: string,
     isReady: boolean,
-  ): Promise<boolean> {
-    const [updatedPlayer] = await db
-      .update(roomPlayers)
-      .set({
-        isReady,
-      })
-      .where(
-        and(
-          eq(roomPlayers.roomId, roomId),
-          eq(roomPlayers.playerId, playerId),
-        ),
-      )
-      .returning({
-        id: roomPlayers.id,
-      });
+  ): Promise<Room> {
+    return db.transaction(async (tx) => {
+      const room = await this._getRoom(roomId, tx);
 
-    return updatedPlayer !== undefined;
+      const player = room.players.find(
+        (roomPlayer) => roomPlayer.id === playerId,
+      );
+
+      if (!player) {
+        throw new Error(
+          "Player is not a member of this room",
+        );
+      }
+
+      if (player.isReady === isReady) {
+        return room;
+      }
+
+      await tx
+        .update(roomPlayers)
+        .set({ isReady })
+        .where(
+          and(
+            eq(roomPlayers.roomId, roomId),
+            eq(roomPlayers.playerId, playerId),
+          ),
+        );
+
+      return this._getRoom(roomId, tx);
+    });
   }
-
   // ---------------------------------------------------------------------------
   // Start Round
   // ---------------------------------------------------------------------------
-
   async startRound(
     roomId: string,
+    playerId: string,
   ): Promise<Room> {
     return db.transaction(async (tx) => {
-      const room = await this._getRoom(
-        roomId,
-        tx,
-      );
+      const room = await this._getRoom(roomId, tx);
 
-      if (room.players.length !== room.maxPlayers) {
+      if (
+        room.roundStatus !== RoomStatus.WAITING &&
+        room.roundStatus !== RoomStatus.RESULT
+      ) {
         throw new Error(
-          "Two players are required to start the round",
+          "Round cannot be started in the current state",
         );
       }
 
       if (
-        !room.players.every(
-          (player) => player.isReady,
-        )
+        room.roundStatus === RoomStatus.WAITING &&
+        room.hostPlayerId !== playerId
       ) {
         throw new Error(
-          "Both players must be ready",
+          "Only the host can start the game",
         );
       }
 
-      const firstPlayer = room.players.find(
-        (player) =>
-          player.id === room.hostPlayerId,
-      );
-
-      if (!firstPlayer) {
+      if (
+        room.players.length !== GameConstants.maxPlayers
+      ) {
         throw new Error(
-          "Host player not found",
+          `Exactly ${GameConstants.maxPlayers} players are required to start the round`,
         );
       }
 
-      const nextRound =
-        room.currentRound + 1;
+      if (!room.players.every((player) => player.isReady)) {
+        throw new Error("Both players must be ready");
+      }
+
+      if (room.currentRound >= room.maxRounds) {
+        throw new Error(
+          "Maximum rounds have already been completed",
+        );
+      }
+
+      const nextRound = room.currentRound + 1;
 
       await tx
         .update(rooms)
         .set({
           currentRound: nextRound,
           roundStatus: RoomStatus.PLAYING,
-          turnPlayerId: firstPlayer.id,
+          turnPlayerId: room.hostPlayerId,
           turnIndex: 0,
           updatedAt: new Date(),
         })
@@ -516,14 +495,11 @@ class RoomService {
         .set({
           isReady: false,
         })
-        .where(
-          eq(roomPlayers.roomId, roomId),
-        );
+        .where(eq(roomPlayers.roomId, roomId));
 
       return this._getRoom(roomId, tx);
     });
   }
-
   // ---------------------------------------------------------------------------
   // Remove Player
   // ---------------------------------------------------------------------------
@@ -770,25 +746,25 @@ class RoomService {
   // Private: Build Game Result
   // ---------------------------------------------------------------------------
 
-  private async _buildGameResult(
-    roomId: string,
-    winnerPlayerId: string | null,
-    winningIndexes: number[],
-    completedRound: number,
-    maxRounds: number,
-  ): Promise<GameResult> {
-    const room =
-      await this._getRoom(roomId, db);
+  // private async _buildGameResult(
+  //   // roomId: string,
+  //   winnerPlayerId: string | null,
+  //   winningIndexes: number[],
+  //   completedRound: number,
+  //   maxRounds: number,
+  // ): Promise<GameResult> {
+  //   // const room =
+  //   //   await this._getRoom(roomId, db);
 
-    return {
-      room,
-      winnerPlayerId,
-      winningIndexes,
-      completedRound,
-      gameFinished:
-        completedRound >= maxRounds,
-    };
-  }
+  //   return {
+  //     // room,
+  //     winnerPlayerId,
+  //     winningIndexes,
+  //     completedRound,
+  //     gameFinished:
+  //       completedRound >= maxRounds,
+  //   };
+  // }
 
   // ---------------------------------------------------------------------------
   // Private: Map Room
@@ -815,13 +791,13 @@ class RoomService {
       isPrivate: room.isPrivate,
       hostPlayerId: room.hostPlayerId,
       theme: room.theme,
-      maxPlayers: room.maxPlayers,
+
       maxRounds: room.maxRounds,
       currentRound: room.currentRound,
       roundStatus: room.roundStatus,
       turnPlayerId: room.turnPlayerId,
       turnIndex: room.turnIndex,
-      boardSize: room.boardSize,
+
       players,
       createdAt: room.createdAt,
       updatedAt: room.updatedAt,
@@ -868,15 +844,15 @@ class RoomService {
   // ---------------------------------------------------------------------------
 
   private _generateRoomCode(): string {
-    const characters =
-      "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const { roomCodeLength, roomCodeCharacters } =
+      GameConstants;
 
     return Array.from(
-      { length: 6 },
+      { length: roomCodeLength },
       () =>
-        characters[
+        roomCodeCharacters[
         Math.floor(
-          Math.random() * characters.length,
+          Math.random() * roomCodeCharacters.length,
         )
         ],
     ).join("");
