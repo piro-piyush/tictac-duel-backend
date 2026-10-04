@@ -9,6 +9,8 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
+import { GameConstants } from "../core/constants/game_constants.js";
+
 // ─────────────────────────────────────────────
 // Enums
 // ─────────────────────────────────────────────
@@ -86,7 +88,7 @@ export const rooms = pgTable("rooms", {
     .primaryKey(),
 
   roomCode: varchar("room_code", {
-    length: 6,
+    length: GameConstants.roomCodeLength,
   })
     .notNull()
     .unique(),
@@ -102,13 +104,10 @@ export const rooms = pgTable("rooms", {
   theme: roomThemeEnum("theme")
     .notNull(),
 
-  maxPlayers: integer("max_players")
-    .notNull()
-    .default(2),
 
   maxRounds: integer("max_rounds")
     .notNull()
-    .default(5),
+    .default(GameConstants.roundOptions[1]),
 
   currentRound: integer("current_round")
     .notNull()
@@ -125,9 +124,7 @@ export const rooms = pgTable("rooms", {
     .notNull()
     .default(0),
 
-  boardSize: integer("board_size")
-    .notNull()
-    .default(3),
+
 
   createdAt: timestamp("created_at", {
     withTimezone: true,
@@ -166,7 +163,7 @@ export const roomPlayers = pgTable(
       }),
 
     name: varchar("name", {
-      length: 20,
+      length: GameConstants.maxPlayerNameLength,
     })
       .notNull(),
 

@@ -20,6 +20,7 @@ export const ROOM_SOCKET_EVENTS = {
     GAME_DISMISSED: "game_dismissed",
     ROOM_CLOSED: "room_closed",
     ROOM_ERROR: "room_error",
+    QUIT_GAME: "quit_game",
 
 } as const;
 
