@@ -2,16 +2,18 @@ import {
   and,
   eq,
   sql,
-} from "drizzle-orm";
-import { GameConstants } from "../core/constants/game_constants.js";
-import { db } from "../db/index.js";
+} from 'drizzle-orm';
+import { GameConstants } from '../core/constants/game_constants.js';
+import { HTTP_STATUS } from '../core/constants/http_status.js';
+import ApiError from '../core/errors/api_error.js';
+import { db } from '../db/index.js';
 import {
   players,
   roomPlayers,
   rooms,
   RoomStatus,
-} from "../db/schema.js";
-import type { NewRoom } from "../db/types.js";
+} from '../db/schema.js';
+import type { NewRoom } from '../db/types.js';
 import type {
   CreateRoomParams,
   GameResult,
@@ -21,33 +23,32 @@ import type {
   Room,
   RoomPlayer,
   SubmitGameResultParams,
-} from "../validators/room_validator.js";
+} from '../validators/room_validator.js';
 
-
-// -----------------------------------------------------------------------------
+// =============================================================================
 // Types
-// -----------------------------------------------------------------------------
+// =============================================================================
 
 type Database = Pick<
   typeof db,
-  "select" | "insert" | "update" | "delete"
+  'select' | 'insert' | 'update' | 'delete'
 >;
 
 type AddRoomPlayerParams = {
   roomId: string;
   playerId: string;
   name: string;
-  symbol: "x" | "o";
+  symbol: 'x' | 'o';
 };
 
-// -----------------------------------------------------------------------------
+// =============================================================================
 // Room Service
-// -----------------------------------------------------------------------------
+// =============================================================================
 
 class RoomService {
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Create Room
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async createRoom({
     playerId,
@@ -57,7 +58,8 @@ class RoomService {
     maxRounds,
     isPrivate,
   }: CreateRoomParams): Promise<Room> {
-    const roomCode = await this._generateUniqueRoomCode();
+    const roomCode =
+      await this._generateUniqueRoomCode();
 
     const newRoom: NewRoom = {
       roomCode,
@@ -69,7 +71,6 @@ class RoomService {
       roundStatus: RoomStatus.WAITING,
       turnPlayerId: playerId,
       turnIndex: 0,
-
     };
 
     return db.transaction(async (tx) => {
@@ -81,7 +82,7 @@ class RoomService {
         .returning();
 
       if (!room) {
-        throw new Error("Failed to create room");
+        throw new Error('Failed to create room');
       }
 
       await this._addRoomPlayer(
@@ -98,9 +99,9 @@ class RoomService {
     });
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Join Room
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async joinRoom({
     playerId,
@@ -110,15 +111,28 @@ class RoomService {
     const room = await this.getRoomByCode(roomCode);
 
     if (!room) {
-      throw new Error("Room not found");
+      throw new ApiError(
+        'Room not found',
+
+        HTTP_STATUS.NOT_FOUND,
+      );
     }
 
     if (room.roundStatus === RoomStatus.PLAYING) {
-      throw new Error("Game is already in progress");
+      throw new ApiError(
+        'Game is already in progress',
+        HTTP_STATUS.CONFLICT,
+      );
     }
 
-    if (room.players.length >= GameConstants.maxPlayers) {
-      throw new Error("Room is full");
+    if (
+      room.players.length >=
+      GameConstants.maxPlayers
+    ) {
+      throw new ApiError(
+        'Room is full',
+        HTTP_STATUS.CONFLICT,
+      );
     }
 
     if (
@@ -126,19 +140,25 @@ class RoomService {
         (player) => player.id === playerId,
       )
     ) {
-      throw new Error("Player is already in this room");
+      throw new ApiError(
+        'Player is already in this room',
+        HTTP_STATUS.CONFLICT,
+      );
     }
 
     const hostPlayer = room.players.find(
-      (player) => player.id === room.hostPlayerId,
+      (player) =>
+        player.id === room.hostPlayerId,
     );
 
     if (!hostPlayer) {
-      throw new Error("Room has no host player");
+      throw new Error(
+        'Room has no host player',
+      );
     }
 
     const guestSymbol =
-      hostPlayer.symbol === "x" ? "o" : "x";
+      hostPlayer.symbol === 'x' ? 'o' : 'x';
 
     return db.transaction(async (tx) => {
       await this._ensurePlayer(playerId, tx);
@@ -156,10 +176,9 @@ class RoomService {
       return this._getRoom(room.id, tx);
     });
   }
-
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Make Move
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async makeMove({
     roomCode,
@@ -170,21 +189,21 @@ class RoomService {
       await this._requireRoomByCode(roomCode);
 
     if (room.roundStatus !== RoomStatus.PLAYING) {
-      throw new Error("Round is not active");
+      throw new Error('Round is not active');
     }
 
     if (
       index < 0 ||
       index >= GameConstants.totalCells
     ) {
-      throw new Error("Invalid board position");
+      throw new Error('Invalid board position');
     }
 
     const player =
       this._getRoomPlayer(room, playerId);
 
     if (room.turnPlayerId !== player.id) {
-      throw new Error("Not your turn");
+      throw new Error('Not your turn');
     }
 
     const nextTurnIndex =
@@ -195,18 +214,32 @@ class RoomService {
 
     if (!nextPlayer) {
       throw new Error(
-        "Unable to determine next player",
+        'Unable to determine next player',
       );
     }
 
-    await db
+    const updatedRooms = await db
       .update(rooms)
       .set({
         turnIndex: nextTurnIndex,
         turnPlayerId: nextPlayer.id,
         updatedAt: new Date(),
       })
-      .where(eq(rooms.id, room.id));
+      .where(
+        and(
+          eq(rooms.id, room.id),
+          eq(rooms.roundStatus, RoomStatus.PLAYING),
+          eq(rooms.turnPlayerId, player.id),
+          eq(rooms.turnIndex, room.turnIndex),
+        ),
+      )
+      .returning({
+        id: rooms.id,
+      });
+
+    if (updatedRooms.length === 0) {
+      throw new Error('Turn has already changed');
+    }
 
     return {
       index,
@@ -217,9 +250,9 @@ class RoomService {
     };
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Submit Game Result
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async submitGameResult({
     roomCode,
@@ -230,10 +263,13 @@ class RoomService {
       await this._requireRoomByCode(roomCode);
 
     if (room.roundStatus !== RoomStatus.PLAYING) {
-      throw new Error("Round is not active");
+      throw new Error('Round is not active');
     }
 
-    if (room.players.length !== GameConstants.maxPlayers) {
+    if (
+      room.players.length !==
+      GameConstants.maxPlayers
+    ) {
       throw new Error(
         `Exactly ${GameConstants.maxPlayers} players are required`,
       );
@@ -242,17 +278,17 @@ class RoomService {
     const submittingPlayer =
       this._getRoomPlayer(room, playerId);
 
-    const isDraw = winningIndexes.length === 0;
-
-    const winnerIndex = isDraw
-      ? 0
-      : room.players.findIndex(
+    const submitterIndex =
+      room.players.findIndex(
         (player) => player.id === submittingPlayer.id,
       );
 
-    if (!isDraw && winnerIndex === -1) {
-      throw new Error("Winner not found");
+    if (submitterIndex === -1) {
+      throw new Error('Submitter not found');
     }
+
+    const isDraw =
+      winningIndexes.length === 0;
 
     const gameFinished =
       room.currentRound >= room.maxRounds;
@@ -266,8 +302,14 @@ class RoomService {
           })
           .where(
             and(
-              eq(roomPlayers.roomId, room.id),
-              eq(roomPlayers.playerId, submittingPlayer.id),
+              eq(
+                roomPlayers.roomId,
+                room.id,
+              ),
+              eq(
+                roomPlayers.playerId,
+                submittingPlayer.id,
+              ),
             ),
           );
       }
@@ -281,10 +323,8 @@ class RoomService {
         .update(rooms)
         .set({
           roundStatus: RoomStatus.RESULT,
-          turnPlayerId: isDraw
-            ? null
-            : submittingPlayer.id,
-          turnIndex: isDraw ? 0 : winnerIndex,
+          turnPlayerId: submittingPlayer.id,
+          turnIndex: submitterIndex,
           updatedAt: new Date(),
         })
         .where(eq(rooms.id, room.id));
@@ -297,11 +337,13 @@ class RoomService {
       roundStatus: RoomStatus.RESULT,
       winningIndexes,
       gameFinished,
+      turnPlayerId: submittingPlayer.id,
+      turnIndex: submitterIndex,
     };
   }
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Get Room By ID
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async getRoom(
     roomId: string,
@@ -309,9 +351,9 @@ class RoomService {
     return this._getRoom(roomId, db);
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Get Room By Code
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async getRoomByCode(
     roomCode: string,
@@ -333,12 +375,16 @@ class RoomService {
         ),
       );
 
+    if (result.length === 0) {
+      return null;
+    }
+
     return this._mapRoomResult(result);
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Get Rooms
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async getRooms(): Promise<Room[]> {
     const result = await db
@@ -355,9 +401,9 @@ class RoomService {
     return this._mapRooms(result);
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Get Public Rooms
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async getPublicRooms(): Promise<Room[]> {
     const result = await db
@@ -375,9 +421,9 @@ class RoomService {
     return this._mapRooms(result);
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Delete Room
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async deleteRoom(
     roomId: string,
@@ -392,9 +438,9 @@ class RoomService {
     return deletedRoom !== undefined;
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Set Player Ready
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async setPlayerReady(
     roomId: string,
@@ -402,15 +448,17 @@ class RoomService {
     isReady: boolean,
   ): Promise<Room> {
     return db.transaction(async (tx) => {
-      const room = await this._getRoom(roomId, tx);
+      const room =
+        await this._getRoom(roomId, tx);
 
       const player = room.players.find(
-        (roomPlayer) => roomPlayer.id === playerId,
+        (roomPlayer) =>
+          roomPlayer.id === playerId,
       );
 
       if (!player) {
         throw new Error(
-          "Player is not a member of this room",
+          'Player is not a member of this room',
         );
       }
 
@@ -424,29 +472,35 @@ class RoomService {
         .where(
           and(
             eq(roomPlayers.roomId, roomId),
-            eq(roomPlayers.playerId, playerId),
+            eq(
+              roomPlayers.playerId,
+              playerId,
+            ),
           ),
         );
 
       return this._getRoom(roomId, tx);
     });
   }
-  // ---------------------------------------------------------------------------
+
+  // ===========================================================================
   // Start Round
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+
   async startRound(
     roomId: string,
     playerId: string,
   ): Promise<Room> {
     return db.transaction(async (tx) => {
-      const room = await this._getRoom(roomId, tx);
+      const room =
+        await this._getRoom(roomId, tx);
 
       if (
         room.roundStatus !== RoomStatus.WAITING &&
         room.roundStatus !== RoomStatus.RESULT
       ) {
         throw new Error(
-          "Round cannot be started in the current state",
+          'Round cannot be started in the current state',
         );
       }
 
@@ -455,29 +509,49 @@ class RoomService {
         room.hostPlayerId !== playerId
       ) {
         throw new Error(
-          "Only the host can start the game",
+          'Only the host can start the game',
         );
       }
 
       if (
-        room.players.length !== GameConstants.maxPlayers
+        room.players.length !==
+        GameConstants.maxPlayers
       ) {
         throw new Error(
           `Exactly ${GameConstants.maxPlayers} players are required to start the round`,
         );
       }
 
-      if (!room.players.every((player) => player.isReady)) {
-        throw new Error("Both players must be ready");
-      }
-
-      if (room.currentRound >= room.maxRounds) {
+      if (
+        !room.players.every(
+          (player) => player.isReady,
+        )
+      ) {
         throw new Error(
-          "Maximum rounds have already been completed",
+          'Both players must be ready',
         );
       }
 
-      const nextRound = room.currentRound + 1;
+      if (
+        room.currentRound >= room.maxRounds
+      ) {
+        throw new Error(
+          'Maximum rounds have already been completed',
+        );
+      }
+
+      const hostIndex = room.players.findIndex(
+        (player) => player.id === room.hostPlayerId,
+      );
+
+      if (hostIndex === -1) {
+        throw new Error(
+          'Room host is not a player',
+        );
+      }
+
+      const nextRound =
+        room.currentRound + 1;
 
       await tx
         .update(rooms)
@@ -485,7 +559,7 @@ class RoomService {
           currentRound: nextRound,
           roundStatus: RoomStatus.PLAYING,
           turnPlayerId: room.hostPlayerId,
-          turnIndex: 0,
+          turnIndex: hostIndex,
           updatedAt: new Date(),
         })
         .where(eq(rooms.id, roomId));
@@ -495,14 +569,17 @@ class RoomService {
         .set({
           isReady: false,
         })
-        .where(eq(roomPlayers.roomId, roomId));
+        .where(
+          eq(roomPlayers.roomId, roomId),
+        );
 
       return this._getRoom(roomId, tx);
     });
   }
-  // ---------------------------------------------------------------------------
+
+  // ===========================================================================
   // Remove Player
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   async removePlayer(
     roomId: string,
@@ -513,7 +590,10 @@ class RoomService {
       .where(
         and(
           eq(roomPlayers.roomId, roomId),
-          eq(roomPlayers.playerId, playerId),
+          eq(
+            roomPlayers.playerId,
+            playerId,
+          ),
         ),
       )
       .returning({
@@ -523,9 +603,9 @@ class RoomService {
     return deletedPlayer !== undefined;
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Get Room By ID
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private async _getRoom(
     roomId: string,
@@ -547,15 +627,15 @@ class RoomService {
       this._mapRoomResult(result);
 
     if (!room) {
-      throw new Error("Room not found");
+      throw new Error('Room not found');
     }
 
     return room;
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Require Room By Code
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private async _requireRoomByCode(
     roomCode: string,
@@ -564,15 +644,15 @@ class RoomService {
       await this.getRoomByCode(roomCode);
 
     if (!room) {
-      throw new Error("Room not found");
+      throw new Error('Room not found');
     }
 
     return room;
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Map Rooms
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private _mapRooms(
     result: Array<{
@@ -622,35 +702,28 @@ class RoomService {
     );
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Map Query Result
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private _mapRoomResult(
     result: Array<{
       room: typeof rooms.$inferSelect;
-      roomPlayer:
-      | typeof roomPlayers.$inferSelect
-      | null;
+      roomPlayer: typeof roomPlayers.$inferSelect | null;
     }>,
   ): Room | null {
     if (result.length === 0) {
       return null;
     }
 
-    const first = result[0];
-
-    if (!first) {
-      return null;
-    }
+    const first = result[0]!;
 
     const players = result
       .map((row) => row.roomPlayer)
       .filter(
         (
           player,
-        ): player is typeof roomPlayers.$inferSelect =>
-          player !== null,
+        ): player is typeof roomPlayers.$inferSelect => player !== null,
       );
 
     return this._mapRoom(
@@ -658,10 +731,9 @@ class RoomService {
       players,
     );
   }
-
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Ensure Player
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private async _ensurePlayer(
     playerId: string,
@@ -677,9 +749,9 @@ class RoomService {
       });
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Add Room Player
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private async _addRoomPlayer(
     {
@@ -702,9 +774,9 @@ class RoomService {
       });
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Get Room Player
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private _getRoomPlayer(
     room: Room,
@@ -717,16 +789,16 @@ class RoomService {
 
     if (!player) {
       throw new Error(
-        "Player is not part of this room",
+        'Player is not part of this room',
       );
     }
 
     return player;
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Reset Players Ready
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private async _resetPlayersReady(
     roomId: string,
@@ -742,33 +814,9 @@ class RoomService {
       );
   }
 
-  // ---------------------------------------------------------------------------
-  // Private: Build Game Result
-  // ---------------------------------------------------------------------------
-
-  // private async _buildGameResult(
-  //   // roomId: string,
-  //   winnerPlayerId: string | null,
-  //   winningIndexes: number[],
-  //   completedRound: number,
-  //   maxRounds: number,
-  // ): Promise<GameResult> {
-  //   // const room =
-  //   //   await this._getRoom(roomId, db);
-
-  //   return {
-  //     // room,
-  //     winnerPlayerId,
-  //     winningIndexes,
-  //     completedRound,
-  //     gameFinished:
-  //       completedRound >= maxRounds,
-  //   };
-  // }
-
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Map Room
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private _mapRoom(
     room: typeof rooms.$inferSelect,
@@ -791,22 +839,20 @@ class RoomService {
       isPrivate: room.isPrivate,
       hostPlayerId: room.hostPlayerId,
       theme: room.theme,
-
       maxRounds: room.maxRounds,
       currentRound: room.currentRound,
       roundStatus: room.roundStatus,
       turnPlayerId: room.turnPlayerId,
       turnIndex: room.turnIndex,
-
       players,
       createdAt: room.createdAt,
       updatedAt: room.updatedAt,
     };
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Generate Unique Room Code
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private async _generateUniqueRoomCode(): Promise<string> {
     const maxAttempts = 10;
@@ -835,27 +881,30 @@ class RoomService {
     }
 
     throw new Error(
-      "Unable to generate a unique room code. Please try again.",
+      'Unable to generate a unique room code. Please try again.',
     );
   }
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Private: Generate Room Code
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
 
   private _generateRoomCode(): string {
-    const { roomCodeLength, roomCodeCharacters } =
-      GameConstants;
+    const {
+      roomCodeLength,
+      roomCodeCharacters,
+    } = GameConstants;
 
     return Array.from(
       { length: roomCodeLength },
       () =>
         roomCodeCharacters[
         Math.floor(
-          Math.random() * roomCodeCharacters.length,
+          Math.random() *
+          roomCodeCharacters.length,
         )
         ],
-    ).join("");
+    ).join('');
   }
 }
 

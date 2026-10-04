@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { GameConstants } from "../core/constants/game_constants.js";
+import { GameConstants, RoomCodePattern } from "../core/constants/game_constants.js";
 import {
     playerSymbolEnum,
     roomStatusEnum,
@@ -15,6 +15,9 @@ export const GameDismissReason = {
     OPPONENT_DISCONNECTED: "opponentDisconnected",
     OPPONENT_QUIT: "opponentQuit",
 } as const;
+
+export type GameDismissReason =
+    (typeof GameDismissReason)[keyof typeof GameDismissReason];
 
 // -----------------------------------------------------------------------------
 // Common Validators
@@ -57,7 +60,7 @@ export const roomCodeValidator = z
     .trim()
     .toUpperCase()
     .regex(
-        GameConstants.roomCodePattern,
+        RoomCodePattern,
         "Invalid room code",
     );
 
@@ -178,7 +181,9 @@ export const moveResultModel = z.object({
 
 export const gameResultModel = z.object({
     winnerId: playerIdValidator.nullable(),
+
     roundStatus: roomStatusValidator.nullable(),
+
     winningIndexes: z.array(
         z
             .number()
@@ -186,7 +191,12 @@ export const gameResultModel = z.object({
             .nonnegative()
             .max(GameConstants.totalCells - 1),
     ),
+
     gameFinished: z.boolean(),
+
+    turnPlayerId: playerIdValidator,
+
+    turnIndex: z.number().int().nonnegative(),
 });
 
 export const roundStartedResponseModel = z.object({
