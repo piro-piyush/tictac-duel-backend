@@ -17,6 +17,7 @@ import {
   connectRoomValidator,
   GameDismissReason,
   makeMoveValidator,
+  sendReactionValidator,
   submitGameResultValidator,
 } from '../validators/room_validator.js';
 
@@ -563,6 +564,112 @@ function registerRoomSocket(
         );
       }
     },
+  );
+
+  // ===========================================================================
+  // REACTION
+  // ===========================================================================
+
+  socket.on(
+    ROOM_SOCKET_EVENTS.SEND_REACTION,
+    withSocketErrorHandling(
+      socket,
+      'Failed to send reaction',
+      'Failed to send reaction',
+      async (data: unknown) => {
+        const parsed = sendReactionValidator.safeParse(data);
+
+        if (!parsed.success) {
+          emitValidationError(
+            socket,
+            parsed.error.issues[0]?.message ??
+            'Invalid reaction data',
+          );
+          return;
+        }
+
+        const {
+          roomCode,
+          targetPlayerId,
+          reaction,
+        } = parsed.data;
+
+        const playerId = getSocketPlayerId(socket);
+
+        validateSocketPlayer(socket, playerId);
+        validateSocketRoom(socket, roomCode);
+
+        Logger.info(
+          'Send reaction request received',
+          {
+            socketId: socket.id,
+            roomCode,
+            senderId: playerId,
+            targetPlayerId,
+            reaction,
+          },
+        );
+
+        const room = await RoomService.getRoomByCode(roomCode);
+
+        if (!room) {
+          throw new ApiError(
+            'Room not found',
+            HTTP_STATUS.NOT_FOUND,
+          );
+        }
+
+        const sender = room.players.find(
+          (player) => player.id === playerId,
+        );
+
+        if (!sender) {
+          throw new ApiError(
+            'Player is not a member of this room',
+            HTTP_STATUS.FORBIDDEN,
+          );
+        }
+
+        const targetPlayer = room.players.find(
+          (player) => player.id === targetPlayerId,
+        );
+
+        if (!targetPlayer) {
+          throw new ApiError(
+            'Target player is not a member of this room',
+            HTTP_STATUS.BAD_REQUEST,
+          );
+        }
+
+        if (targetPlayer.id === playerId) {
+          throw new ApiError(
+            'Cannot send a reaction to yourself',
+            HTTP_STATUS.BAD_REQUEST,
+          );
+        }
+
+        const reactionEvent = {
+          senderId: playerId,
+          targetPlayerId,
+          reaction,
+        };
+
+        io.to(roomCode).emit(
+          ROOM_SOCKET_EVENTS.REACTION_RECEIVED,
+          SocketResponse.success(reactionEvent),
+        );
+
+        Logger.success(
+          'Reaction sent',
+          {
+            roomCode,
+            senderId: playerId,
+            targetPlayerId,
+            reaction,
+          },
+        );
+      },
+    ),
   );
 }
 

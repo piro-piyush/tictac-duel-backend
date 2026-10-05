@@ -48,7 +48,9 @@ export const ROOM_SOCKET_EVENTS = {
     // ===========================================================================
     // Errors
     // ===========================================================================
-
+    // reactions
+    SEND_REACTION: 'send_reaction',
+    REACTION_RECEIVED: 'reaction_received',
     ROOM_ERROR: 'room_error',
 } as const;
 

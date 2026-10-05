@@ -19,6 +19,20 @@ export const GameDismissReason = {
 export type GameDismissReason =
     (typeof GameDismissReason)[keyof typeof GameDismissReason];
 
+export const GameReaction = {
+    LAUGH: "laugh",
+    LOVE: "love",
+    ANGRY: "angry",
+    WOW: "wow",
+    FIRE: "fire",
+    CLAP: "clap",
+    PARTY: "party",
+    COOL: "cool",
+} as const;
+
+export type GameReaction =
+    (typeof GameReaction)[keyof typeof GameReaction];
+
 // -----------------------------------------------------------------------------
 // Common Validators
 // -----------------------------------------------------------------------------
@@ -41,6 +55,10 @@ export const roomStatusValidator = z.enum(
 
 export const gameDismissReasonValidator = z.enum(
     Object.values(GameDismissReason),
+);
+
+export const gameReactionValidator = z.enum(
+    Object.values(GameReaction),
 );
 
 export const playerNameValidator = z
@@ -87,7 +105,11 @@ export const connectRoomValidator = z.object({
 // -----------------------------------------------------------------------------
 // Request Validators
 // -----------------------------------------------------------------------------
-
+export const sendReactionValidator = z.object({
+    roomCode: roomCodeValidator,
+    targetPlayerId: playerIdValidator,
+    reaction: gameReactionValidator,
+});
 export const createRoomValidator = z.object({
     playerId: playerIdValidator,
     playerName: playerNameValidator,
@@ -178,7 +200,11 @@ export const moveResultModel = z.object({
     turnPlayerId: playerIdValidator,
     turnIndex: z.number().int().nonnegative(),
 });
-
+export const gameReactionResponseModel = z.object({
+    senderId: playerIdValidator,
+    targetPlayerId: playerIdValidator,
+    reaction: gameReactionValidator,
+});
 export const gameResultModel = z.object({
     winnerId: playerIdValidator.nullable(),
 
