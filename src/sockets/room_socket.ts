@@ -1,699 +1,347 @@
-import type {
+
+import {
   Server,
-  Socket,
-} from 'socket.io';
-import { GameConstants } from '../core/constants/game_constants.js';
-import { HTTP_STATUS } from '../core/constants/http_status.js';
+  type Socket,
+} from "socket.io";
+
+import { HTTP_STATUS } from "../core/constants/http_status.js";
 import {
   ROOM_SOCKET_EVENTS,
   SOCKET_EVENTS,
-} from '../core/constants/socket_events.js';
-import ApiError from '../core/errors/api_error.js';
-import Logger from '../core/utils/logger.js';
-import SocketResponse from '../core/utils/socket_response.js';
-import { RoomStatus } from '../db/schema.js';
-import RoomService from '../services/room_service.js';
+} from "../core/constants/socket_events.js";
+import ApiError from "../core/errors/api_error.js";
+import SocketError from "../core/errors/socket_error.js";
+import Logger from "../core/utils/logger.js";
+import SocketResponse from "../core/utils/socket_response.js";
+import { roomService } from "../services/room_service.js";
+import { RoomStatus } from "../types/room.js";
 import {
-  connectRoomValidator,
+  createRoomValidator,
   GameDismissReason,
+  joinRoomValidator,
   makeMoveValidator,
-  sendReactionValidator,
-  submitGameResultValidator,
-} from '../validators/room_validator.js';
+  sendReactionValidator
+} from "../validators/room_validator.js";
 
 function registerRoomSocket(
   io: Server,
   socket: Socket,
 ): void {
-  // ===========================================================================
-  // CONNECT ROOM
-  // ===========================================================================
-
   socket.on(
-    ROOM_SOCKET_EVENTS.CONNECT_ROOM,
+    ROOM_SOCKET_EVENTS.CREATE_ROOM,
     withSocketErrorHandling(
       socket,
-      'Failed to connect player to room',
-      'Failed to connect to room',
-      async (data: unknown) => {
-        const parsed =
-          connectRoomValidator.safeParse(data);
+      "Failed to create room",
+      async (data) => {
+        const parsed = createRoomValidator.safeParse(data);
 
         if (!parsed.success) {
           emitValidationError(
             socket,
             parsed.error.issues[0]?.message ??
-            'Invalid room connection data',
+            "Invalid room data",
           );
           return;
         }
 
-        const {
-          roomCode,
-          playerId,
-        } = parsed.data;
-
-        Logger.info(
-          'Connect room request received',
-          {
-            roomCode,
-            playerId,
-            socketId: socket.id,
-          },
+        const room = roomService.createRoom(
+          socket.id,
+          parsed.data,
         );
 
-        const room =
-          await RoomService.getRoomByCode(
-            roomCode,
-          );
+        await socket.join(room.roomCode);
 
-        if (!room) {
-          throw new ApiError(
-            'Room not found',
-            HTTP_STATUS.NOT_FOUND,
-          );
-        }
+        socket.data.roomCode = room.roomCode;
 
-        const player = room.players.find(
-          (roomPlayer) =>
-            roomPlayer.id === playerId,
+        socket.emit(
+          ROOM_SOCKET_EVENTS.ROOM_CREATED,
+          SocketResponse.success(room),
         );
+      },
+    ),
+  );
 
-        if (!player) {
-          throw new ApiError(
-            'Player is not a member of this room',
-            HTTP_STATUS.FORBIDDEN,
-          );
-        }
+  socket.on(
+    ROOM_SOCKET_EVENTS.JOIN_ROOM,
+    withSocketErrorHandling(
+      socket,
+      "Failed to join room",
+      async (data) => {
+        const parsed = joinRoomValidator.safeParse(data);
 
-        const isAlreadyConnected =
-          socket.rooms.has(roomCode);
-
-        if (!isAlreadyConnected) {
-          leaveOtherRooms(
+        if (!parsed.success) {
+          emitValidationError(
             socket,
-            roomCode,
+            parsed.error.issues[0]?.message ??
+            "Invalid room data",
           );
-
-          await socket.join(roomCode);
-
-          Logger.success(
-            `Player connected to room: ${roomCode}`,
-          );
+          return;
         }
 
-        socket.data.playerId = playerId;
-        socket.data.roomCode = roomCode;
-
-        Logger.info(
-          'Room socket joined',
-          {
-            roomCode,
-            roomId: room.id,
-            playerId,
-            socketId: socket.id,
-          },
+        const room = roomService.joinRoom(
+          socket.id,
+          parsed.data,
         );
+
+        await socket.join(room.roomCode);
+
+        socket.data.roomCode = room.roomCode;
 
         socket.emit(
           ROOM_SOCKET_EVENTS.ROOM_CONNECTED,
           SocketResponse.success(room),
         );
 
-        if (!isAlreadyConnected) {
-          socket.to(roomCode).emit(
-            ROOM_SOCKET_EVENTS.PLAYER_JOINED,
-            SocketResponse.success(player),
-          );
-
-          Logger.info(
-            'PLAYER_JOINED emitted',
-            {
-              roomCode,
-              playerId,
-            },
-          );
-        }
-      },
-    ),
-  );
-
-  // ===========================================================================
-  // MAKE MOVE
-  // ===========================================================================
-
-  socket.on(
-    ROOM_SOCKET_EVENTS.MAKE_MOVE,
-    withSocketErrorHandling(
-      socket,
-      'Failed to make move',
-      'Failed to make move',
-      async (data: unknown) => {
-        const parsed =
-          makeMoveValidator.safeParse(data);
-
-        if (!parsed.success) {
-          emitValidationError(
-            socket,
-            parsed.error.issues[0]?.message ??
-            'Invalid move data',
-          );
-          return;
-        }
-
-        const {
-          roomCode,
-          playerId,
-          index,
-        } = parsed.data;
-
-        Logger.info(
-          'Make move request received',
-          {
-            socketId: socket.id,
-            roomCode,
-            playerId,
-            index,
-          },
-        );
-
-        validateSocketPlayer(
-          socket,
-          playerId,
-        );
-
-        validateSocketRoom(
-          socket,
-          roomCode,
-        );
-
-        const moveResult =
-          await RoomService.makeMove({
-            roomCode,
-            playerId,
-            index,
-          });
-
-        io.to(roomCode).emit(
-          ROOM_SOCKET_EVENTS.MOVE_MADE,
-          SocketResponse.success(
-            moveResult,
-          ),
-        );
-
-        Logger.success(
-          'Move made',
-          {
-
-            playerId,
-            index,
-            turnPlayerId: moveResult.turnPlayerId,
-            turnIndex: moveResult.turnIndex,
-          },
+        socket.to(room.roomCode).emit(
+          ROOM_SOCKET_EVENTS.PLAYER_JOINED,
+          SocketResponse.success(room.guest),
         );
       },
     ),
   );
-
-  // ===========================================================================
-  // SUBMIT GAME RESULT
-  // ===========================================================================
-
-  socket.on(
-    ROOM_SOCKET_EVENTS.SUBMIT_GAME_RESULT,
-    withSocketErrorHandling(
-      socket,
-      'Failed to submit game result',
-      'Failed to submit game result',
-      async (data: unknown) => {
-        const parsed =
-          submitGameResultValidator.safeParse(
-            data,
-          );
-
-        if (!parsed.success) {
-          emitValidationError(
-            socket,
-            parsed.error.issues[0]?.message ??
-            'Invalid game result data',
-          );
-          return;
-        }
-
-        const {
-          roomCode,
-          playerId,
-          winningIndexes,
-        } = parsed.data;
-
-        Logger.info(
-          'Submit game result request received',
-          {
-            socketId: socket.id,
-            roomCode,
-            playerId,
-            winningIndexes,
-          },
-        );
-
-        validateSocketPlayer(
-          socket,
-          playerId,
-        );
-
-        validateSocketRoom(
-          socket,
-          roomCode,
-        );
-
-        const gameResult =
-          await RoomService.submitGameResult({
-            roomCode,
-            playerId,
-            winningIndexes,
-          });
-
-        io.to(roomCode).emit(
-          ROOM_SOCKET_EVENTS.ROUND_RESULT,
-          SocketResponse.success(
-            gameResult,
-          ),
-        );
-
-        Logger.success(
-          'Round result emitted',
-          {
-            roomCode,
-            winnerId:
-              gameResult.winnerId,
-            gameFinished:
-              gameResult.gameFinished,
-            turnPlayerId:
-              gameResult.turnPlayerId,
-            turnIndex:
-              gameResult.turnIndex,
-          },
-        );
-      },
-    ),
-  );
-
-  // ===========================================================================
-  // SET READY
-  // ===========================================================================
-
-  socket.on(
-    ROOM_SOCKET_EVENTS.SET_READY,
-    withSocketErrorHandling(
-      socket,
-      'Failed to set player ready',
-      'Failed to set player ready',
-      async () => {
-        const playerId =
-          getSocketPlayerId(socket);
-
-        const roomCode =
-          getSocketRoomCode(socket);
-
-        validateSocketRoom(
-          socket,
-          roomCode,
-        );
-
-        const room =
-          await RoomService.getRoomByCode(
-            roomCode,
-          );
-
-        if (!room) {
-          throw new ApiError(
-            'Room not found',
-            HTTP_STATUS.NOT_FOUND,
-          );
-        }
-
-        const player = room.players.find(
-          (roomPlayer) =>
-            roomPlayer.id === playerId,
-        );
-
-        if (!player) {
-          throw new ApiError(
-            'Player is not a member of this room',
-            HTTP_STATUS.FORBIDDEN,
-          );
-        }
-
-        if (player.isReady) {
-          return;
-        }
-
-        const updatedRoom =
-          await RoomService.setPlayerReady(
-            room.id,
-            playerId,
-            true,
-          );
-
-        io.to(roomCode).emit(
-          ROOM_SOCKET_EVENTS.READY_UPDATED,
-          SocketResponse.success({
-            playerId,
-            isReady: true,
-          }),
-        );
-
-        const allReady =
-          updatedRoom.players.length ===
-          GameConstants.maxPlayers &&
-          updatedRoom.players.every(
-            (roomPlayer) =>
-              roomPlayer.isReady,
-          );
-
-        if (!allReady) {
-          return;
-        }
-
-        const startedRoom =
-          await RoomService.startRound(
-            room.id,
-            playerId,
-          );
-
-        io.to(roomCode).emit(
-          ROOM_SOCKET_EVENTS.ROUND_STARTED,
-          SocketResponse.success({
-            room: startedRoom,
-            playerOneReady: false,
-            playerTwoReady: false,
-            turnPlayerId:
-              startedRoom.turnPlayerId,
-            turnIndex:
-              startedRoom.turnIndex,
-          }),
-        );
-
-        Logger.success(
-          'Round started',
-          {
-            roomCode,
-            round:
-              startedRoom.currentRound,
-          },
-        );
-      },
-    ),
-  );
-
-  // ===========================================================================
-  // START GAME
-  // ===========================================================================
 
   socket.on(
     ROOM_SOCKET_EVENTS.START_GAME,
     withSocketErrorHandling(
       socket,
-      'Failed to start game',
-      'Failed to start game',
+      "Failed to start game",
       async () => {
-        const playerId =
-          getSocketPlayerId(socket);
-
-        const roomCode =
-          getSocketRoomCode(socket);
+        const roomCode = getSocketRoomCode(socket);
 
         validateSocketRoom(
           socket,
           roomCode,
         );
 
-        const room =
-          await RoomService.getRoomByCode(
-            roomCode,
-          );
-
-        if (!room) {
-          throw new ApiError(
-            'Room not found',
-            HTTP_STATUS.NOT_FOUND,
-          );
-        }
-
-        const startedRoom =
-          await RoomService.startRound(
-            room.id,
-            playerId,
-          );
-
-        const playerOne =
-          startedRoom.players[0];
-
-        const playerTwo =
-          startedRoom.players[1];
-
-        if (!playerOne || !playerTwo) {
-          throw new ApiError(
-            'Room must have exactly two players',
-            HTTP_STATUS.CONFLICT,
-          );
-        }
+        const room = roomService.startRound(
+          roomCode,
+          socket.id,
+        );
 
         io.to(roomCode).emit(
           ROOM_SOCKET_EVENTS.ROUND_STARTED,
           SocketResponse.success({
-            room: startedRoom,
-            playerOneReady:
-              playerOne.isReady,
-            playerTwoReady:
-              playerTwo.isReady,
-            turnPlayerId:
-              startedRoom.turnPlayerId,
-            turnIndex:
-              startedRoom.turnIndex,
+            currentRound: room.currentRound,
+            roundStatus: room.roundStatus,
+            hostReady: room.host.isReady,
+            guestReady: room.guest?.isReady ?? false,
+            turnPlayerId: room.turnSocketId,
+          })
+        );
+      },
+    ),
+  );
+
+
+
+
+  socket.on(
+    ROOM_SOCKET_EVENTS.MAKE_MOVE,
+    withSocketErrorHandling(
+      socket,
+      "Failed to make move",
+      async (data) => {
+        const parsed = makeMoveValidator.safeParse(data);
+
+        if (!parsed.success) {
+          emitValidationError(
+            socket,
+            parsed.error.issues[0]?.message ??
+            "Invalid move data",
+          );
+          return;
+        }
+
+        const roomCode = getSocketRoomCode(socket);
+        validateSocketRoom(socket, roomCode);
+
+        const move = roomService.makeMove(
+          roomCode,
+          socket.id,
+          parsed.data.index,
+        );
+
+        io.to(roomCode).emit(
+          ROOM_SOCKET_EVENTS.MOVE_MADE,
+          SocketResponse.success(move),
+        );
+      },
+    ),
+  );
+
+
+
+  socket.on(
+    ROOM_SOCKET_EVENTS.SET_READY,
+    withSocketErrorHandling(
+      socket,
+      "Failed to set player ready",
+      async () => {
+        const roomCode = getSocketRoomCode(socket);
+
+        validateSocketRoom(
+          socket,
+          roomCode,
+        );
+
+        const room = roomService.setReady(
+          roomCode,
+          socket.id,
+        );
+
+        const player = roomService.getPlayer(
+          room,
+          socket.id,
+        );
+
+        if (!player) {
+          throw new ApiError(
+            "Player is not a member of this room",
+            HTTP_STATUS.FORBIDDEN,
+          );
+        }
+
+        io.to(roomCode).emit(
+          ROOM_SOCKET_EVENTS.READY_UPDATED,
+          SocketResponse.success({
+            playerId: player.id,
+            isReady: player.isReady,
           }),
         );
 
-        Logger.success(
-          'Game started',
-          {
+        if (
+          room.host.isReady &&
+          room.guest?.isReady &&
+          room.roundStatus === RoomStatus.ROUND_RESULT
+        ) {
+          const startedRoom = roomService.startRound(
             roomCode,
-            playerId,
-            round:
-              startedRoom.currentRound,
-          },
-        );
+            room.host.id,
+          );
+
+          io.to(roomCode).emit(
+            ROOM_SOCKET_EVENTS.ROUND_STARTED,
+
+            SocketResponse.success({
+              currentRound: startedRoom.currentRound,
+              roundStatus: startedRoom.roundStatus,
+              hostReady: startedRoom.host.isReady,
+              guestReady: startedRoom.guest?.isReady ?? false,
+              turnPlayerId: startedRoom.turnSocketId,
+            })
+          );
+        }
       },
     ),
   );
 
-  // ===========================================================================
-  // QUIT GAME
-  // ===========================================================================
 
-  socket.on(
-    ROOM_SOCKET_EVENTS.QUIT_GAME,
-    withSocketErrorHandling(
-      socket,
-      'Failed to quit game',
-      'Failed to quit game',
-      async () => {
-        const playerId =
-          getSocketPlayerId(socket);
-
-        const roomCode =
-          getSocketRoomCode(socket);
-
-        Logger.info(
-          'Quit game request received',
-          {
-            socketId: socket.id,
-            roomCode,
-            playerId,
-          },
-        );
-
-        await handlePlayerExit({
-          io,
-          socket,
-          roomCode,
-          playerId,
-          reason:
-            GameDismissReason.OPPONENT_QUIT,
-        });
-      },
-    ),
-  );
-
-  // ===========================================================================
-  // DISCONNECT
-  // ===========================================================================
-
-  socket.on(
-    SOCKET_EVENTS.DISCONNECT,
-    async (reason: string) => {
-      const roomCode = socket.data.roomCode;
-      const playerId = socket.data.playerId;
-
-      Logger.info(
-        `Player disconnected: ${socket.id}`,
-        {
-          reason,
-          roomCode,
-          playerId,
-        },
-      );
-
-      if (!roomCode || !playerId) {
-        return;
-      }
-
-      try {
-        await handlePlayerExit({
-          io,
-          socket,
-          roomCode,
-          playerId,
-          reason:
-            GameDismissReason.OPPONENT_DISCONNECTED,
-        });
-      } catch (error: unknown) {
-        Logger.error(
-          'Failed to handle player disconnect',
-          error,
-        );
-      }
-    },
-  );
-
-  // ===========================================================================
-  // REACTION
-  // ===========================================================================
 
   socket.on(
     ROOM_SOCKET_EVENTS.SEND_REACTION,
     withSocketErrorHandling(
       socket,
-      'Failed to send reaction',
-      'Failed to send reaction',
-      async (data: unknown) => {
+      "Failed to send reaction",
+      async (data) => {
         const parsed = sendReactionValidator.safeParse(data);
 
         if (!parsed.success) {
           emitValidationError(
             socket,
             parsed.error.issues[0]?.message ??
-            'Invalid reaction data',
+            "Invalid reaction data",
           );
           return;
         }
 
-        const {
-          roomCode,
-          targetPlayerId,
-          reaction,
-        } = parsed.data;
-
-        const playerId = getSocketPlayerId(socket);
-
-        validateSocketPlayer(socket, playerId);
+        const roomCode = getSocketRoomCode(socket);
         validateSocketRoom(socket, roomCode);
 
-        Logger.info(
-          'Send reaction request received',
-          {
-            socketId: socket.id,
-            roomCode,
-            senderId: playerId,
-            targetPlayerId,
-            reaction,
-          },
-        );
-
-        const room = await RoomService.getRoomByCode(roomCode);
+        const room = roomService.getRoom(roomCode);
 
         if (!room) {
           throw new ApiError(
-            'Room not found',
+            "Room not found",
             HTTP_STATUS.NOT_FOUND,
           );
         }
 
-        const sender = room.players.find(
-          (player) => player.id === playerId,
+        const sender = roomService.getPlayer(
+          room,
+          socket.id,
         );
 
         if (!sender) {
           throw new ApiError(
-            'Player is not a member of this room',
+            "Player is not in the room",
             HTTP_STATUS.FORBIDDEN,
           );
         }
 
-        const targetPlayer = room.players.find(
-          (player) => player.id === targetPlayerId,
-        );
+        const target =
+          room.host.id === socket.id
+            ? room.guest
+            : room.host;
 
-        if (!targetPlayer) {
+        if (!target) {
           throw new ApiError(
-            'Target player is not a member of this room',
+            "Opponent is not available",
             HTTP_STATUS.BAD_REQUEST,
           );
         }
-
-        if (targetPlayer.id === playerId) {
-          throw new ApiError(
-            'Cannot send a reaction to yourself',
-            HTTP_STATUS.BAD_REQUEST,
-          );
-        }
-
-        const reactionEvent = {
-          senderId: playerId,
-          targetPlayerId,
-          reaction,
-        };
 
         io.to(roomCode).emit(
           ROOM_SOCKET_EVENTS.REACTION_RECEIVED,
-          SocketResponse.success(reactionEvent),
-        );
-
-        Logger.success(
-          'Reaction sent',
-          {
-            roomCode,
-            senderId: playerId,
-            targetPlayerId,
-            reaction,
-          },
+          SocketResponse.success({
+            senderId: sender.id,
+            targetPlayerId: target.id,
+            reaction: parsed.data.reaction,
+          }),
         );
       },
     ),
   );
-}
 
-// =============================================================================
-// Socket Event Error Handling
-// =============================================================================
+  socket.on(
+    ROOM_SOCKET_EVENTS.QUIT_GAME,
+    withSocketErrorHandling(
+      socket,
+      "Failed to quit game",
+      async () => {
+        handleSocketExit(
+          io,
+          socket,
+          GameDismissReason.OPPONENT_QUIT,
+        );
+      },
+    ),
+  );
+
+  socket.on(
+    SOCKET_EVENTS.DISCONNECT,
+    () => {
+      handleSocketExit(
+        io,
+        socket,
+        GameDismissReason.OPPONENT_DISCONNECTED,
+      );
+    },
+  );
+}
 
 function withSocketErrorHandling(
   socket: Socket,
-  logMessage: string,
   fallbackMessage: string,
   handler: (
     data: unknown,
   ) => Promise<void>,
 ): (data: unknown) => Promise<void> {
-  return async (
-    data: unknown,
-  ): Promise<void> => {
+  return async (data: unknown) => {
     try {
       await handler(data);
     } catch (error: unknown) {
       handleSocketError(
         socket,
-        logMessage,
         error,
         fallbackMessage,
       );
@@ -703,133 +351,26 @@ function withSocketErrorHandling(
 
 function handleSocketError(
   socket: Socket,
-  logMessage: string,
   error: unknown,
   fallbackMessage: string,
 ): void {
-  if (error instanceof ApiError) {
-    Logger.warn(
-      `Socket API error: ${error.message} (${error.statusCode})`,
-    );
-
+  if (error instanceof SocketError) {
     socket.emit(
       ROOM_SOCKET_EVENTS.ROOM_ERROR,
       SocketResponse.error(
         error.message,
-        error.statusCode,
-        error.errors,
       ),
     );
-
     return;
   }
-
-  Logger.error(
-    logMessage,
-    error,
-  );
 
   socket.emit(
     ROOM_SOCKET_EVENTS.ROOM_ERROR,
     SocketResponse.error(
       fallbackMessage,
-      HTTP_STATUS.INTERNAL_SERVER_ERROR,
     ),
   );
 }
-
-// =============================================================================
-// Socket Validation
-// =============================================================================
-
-function getSocketPlayerId(
-  socket: Socket,
-): string {
-  const playerId =
-    socket.data.playerId;
-
-  if (!playerId) {
-    throw new ApiError(
-      'Player is not connected to a room',
-      HTTP_STATUS.BAD_REQUEST,
-    );
-  }
-
-  return playerId;
-}
-
-function getSocketRoomCode(
-  socket: Socket,
-): string {
-  const roomCode =
-    socket.data.roomCode;
-
-  if (!roomCode) {
-    throw new ApiError(
-      'Socket is not connected to a room',
-      HTTP_STATUS.BAD_REQUEST,
-    );
-  }
-
-  return roomCode;
-}
-
-function leaveOtherRooms(
-  socket: Socket,
-  roomCode: string,
-): void {
-  for (const roomName of socket.rooms) {
-    if (
-      roomName === socket.id ||
-      roomName === roomCode
-    ) {
-      continue;
-    }
-
-    socket.leave(roomName);
-  }
-}
-
-function validateSocketPlayer(
-  socket: Socket,
-  playerId: string,
-): void {
-  const connectedPlayerId =
-    getSocketPlayerId(socket);
-
-  if (connectedPlayerId !== playerId) {
-    throw new ApiError(
-      'Player identity does not match the connected socket',
-      HTTP_STATUS.FORBIDDEN,
-    );
-  }
-}
-
-function validateSocketRoom(
-  socket: Socket,
-  roomCode: string,
-): void {
-  const connectedRoomCode =
-    getSocketRoomCode(socket);
-
-  if (connectedRoomCode !== roomCode) {
-    throw new ApiError(
-      'Socket room does not match the requested room',
-      HTTP_STATUS.FORBIDDEN,
-    );
-  }
-
-  if (!socket.rooms.has(roomCode)) {
-    throw new ApiError(
-      'Socket is no longer connected to the room',
-      HTTP_STATUS.FORBIDDEN,
-    );
-  }
-}
-
-// =============================================================================
-// Validation Error
-// =============================================================================
 
 function emitValidationError(
   socket: Socket,
@@ -839,120 +380,179 @@ function emitValidationError(
     ROOM_SOCKET_EVENTS.ROOM_ERROR,
     SocketResponse.error(
       message,
-      HTTP_STATUS.BAD_REQUEST,
     ),
   );
 }
 
-// =============================================================================
-// Player Exit
-// =============================================================================
 
-async function handlePlayerExit({
-  io,
-  socket,
-  roomCode,
-  playerId,
-  reason,
-}: {
-  io: Server;
-  socket: Socket;
-  roomCode: string;
-  playerId: string;
-  reason: GameDismissReason;
-}): Promise<void> {
-  const room =
-    await RoomService.getRoomByCode(roomCode);
 
-  if (!room) {
-    Logger.info(
-      `Room already deleted: ${roomCode}`,
+function getSocketRoomCode(
+  socket: Socket,
+): string {
+  const roomCode = socket.data.roomCode;
+
+  if (!roomCode) {
+    throw new ApiError(
+      "Socket is not connected to a room",
+      HTTP_STATUS.BAD_REQUEST,
     );
+  }
+
+  return roomCode;
+}
+
+function validateSocketRoom(
+  socket: Socket,
+  roomCode: string,
+): void {
+  if (!socket.rooms.has(roomCode)) {
+    throw new ApiError(
+      "Socket is no longer connected to the room",
+      HTTP_STATUS.FORBIDDEN,
+    );
+  }
+}
+
+
+function handleSocketExit(
+  io: Server,
+  socket: Socket,
+  reason: GameDismissReason,
+): void {
+  const roomCode = socket.data.roomCode;
+
+  if (!roomCode) {
+    // Logger.info(
+    //   "Socket exited without an active room",
+    //   {
+    //     socketId: socket.id,
+    //     reason,
+    //   },
+    // );
+
     return;
   }
 
-  const isHost =
-    room.hostPlayerId === playerId;
+  delete socket.data.roomCode;
 
-  // ===========================================================================
-  // WAITING
-  // ===========================================================================
+  const result = roomService.removeBySocketId(
+    socket.id,
+  );
 
-  if (room.roundStatus === RoomStatus.WAITING) {
-    if (isHost) {
-      socket.to(roomCode).emit(
+  if (!result) {
+    // Logger.info(
+    //   "Socket exit ignored because player was not found",
+    //   {
+    //     socketId: socket.id,
+    //     roomCode,
+    //     reason,
+    //   },
+    // );
+
+    return;
+  }
+
+  const {
+    room,
+    player,
+    opponent,
+    roomClosed,
+  } = result;
+
+  Logger.info(
+    "Player exited room",
+    {
+      socketId: socket.id,
+      roomCode,
+      playerId: player.id,
+      reason,
+      roundStatus: room.roundStatus,
+      roomClosed,
+    },
+  );
+
+  if (roomClosed) {
+    if (opponent) {
+      io.to(roomCode).emit(
         ROOM_SOCKET_EVENTS.ROOM_CLOSED,
         SocketResponse.success({
-          reason: 'The host has left the room.',
+          playerId: player.id,
+          reason,
         }),
       );
-
-      const deleted =
-        await RoomService.deleteRoom(room.id);
-
-      Logger.info(
-        `Room ${deleted ? 'deleted' : 'was not deleted'} after host exit: ${roomCode}`,
-        {
-          roomId: room.id,
-          playerId,
-          deleted,
-        },
-      );
-
-      return;
     }
 
-    await RoomService.removePlayer(
-      room.id,
-      playerId,
+    Logger.info(
+      "Room closed after host exit",
+      {
+        roomCode,
+        hostId: player.id,
+        reason,
+      },
     );
 
-    socket.to(roomCode).emit(
+    socket.leave(roomCode);
+
+    return;
+  }
+
+  if (
+    room.roundStatus === RoomStatus.WAITING &&
+    opponent
+  ) {
+    io.to(roomCode).emit(
       ROOM_SOCKET_EVENTS.PLAYER_LEFT,
       SocketResponse.success({
-        playerId,
+        playerId: player.id,
       }),
     );
 
     Logger.info(
-      `Player ${playerId} left waiting room: ${roomCode}`,
+      "Player left waiting room",
+      {
+        roomCode,
+        playerId: player.id,
+      },
     );
-
-    return;
   }
 
-  // ===========================================================================
-  // ACTIVE GAME / RESULT
-  // ===========================================================================
-
-  const remainingPlayer =
-    room.players.find(
-      (player) => player.id !== playerId,
+  if (
+    room.roundStatus === RoomStatus.ROUND_RESULT &&
+    opponent
+  ) {
+    io.to(roomCode).emit(
+      ROOM_SOCKET_EVENTS.GAME_DISMISSED,
+      SocketResponse.success({
+        currentRound: room.currentRound,
+        roundStatus: room.roundStatus,
+        winnerPlayerId: opponent.id,
+        exitedPlayerId: player.id,
+        reason,
+        hostPoints: room.host.points,
+        guestPoints: room.guest?.points ?? 0,
+      }),
     );
 
-  socket.to(roomCode).emit(
-    ROOM_SOCKET_EVENTS.GAME_DISMISSED,
-    SocketResponse.success({
-      winnerPlayerId:
-        remainingPlayer?.id ?? null,
-      exitedPlayerId: playerId,
-      reason,
-    }),
-  );
+    Logger.success(
+      "Game dismissed after player exit",
+      {
+        roomCode,
+        currentRound: room.currentRound,
+        winnerPlayerId: opponent.id,
+        exitedPlayerId: player.id,
+        reason,
+        hostPoints: room.host.points,
+        guestPoints: room.guest?.points ?? 0,
+      },
+    );
+  }
 
-  const deleted =
-    await RoomService.deleteRoom(room.id);
-
-  Logger.success(
-    `Game dismissed because player ${playerId} exited: ${roomCode}`,
-    {
-      roomId: room.id,
-      winnerPlayerId:
-        remainingPlayer?.id ?? null,
-      reason,
-      deleted,
-    },
-  );
+  socket.leave(roomCode);
 }
+
+
+
+
+
 
 export default registerRoomSocket;
