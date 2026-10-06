@@ -1,70 +1,37 @@
+
 export const ROOM_SOCKET_EVENTS = {
-    // ===========================================================================
-    // Room Lifecycle
-    // ===========================================================================
+    CREATE_ROOM: "create_room",
+    ROOM_CREATED: "room_created",
 
-    CONNECT_ROOM: 'connect_room',
-    ROOM_CONNECTED: 'room_connected',
-    ROOM_CLOSED: 'room_closed',
+    JOIN_ROOM: "join_room",
+    ROOM_CONNECTED: "room_connected",
 
-    PLAYER_JOINED: 'player_joined',
-    PLAYER_LEFT: 'player_left',
-
-    // ===========================================================================
-    // Game Lifecycle
-    // ===========================================================================
+    PLAYER_JOINED: "player_joined",
+    PLAYER_LEFT: "player_left",
 
     START_GAME: 'start_game',
-    ROUND_STARTED: 'round_started',
+    SET_READY: "set_ready",
+    READY_UPDATED: "ready_updated",
 
-    // ===========================================================================
-    // Round State
-    // ===========================================================================
+    ROUND_STARTED: "round_started",
 
-    SET_READY: 'set_ready',
-    READY_UPDATED: 'ready_updated',
-
-    // ===========================================================================
-    // Gameplay
-    // ===========================================================================
-
-    MAKE_MOVE: 'make_move',
-    MOVE_MADE: 'move_made',
-
-    // ===========================================================================
-    // Round Result
-    // ===========================================================================
+    MAKE_MOVE: "make_move",
+    MOVE_MADE: "move_made",
 
     SUBMIT_GAME_RESULT: 'submit_game_result',
-    ROUND_RESULT: 'round_result',
+    ROUND_RESULT: "round_result",
 
-    // ===========================================================================
-    // Game Exit
-    // ===========================================================================
+    QUIT_GAME: "quit_game",
+    GAME_DISMISSED: "game_dismissed",
 
-    QUIT_GAME: 'quit_game',
-    GAME_DISMISSED: 'game_dismissed',
+    SEND_REACTION: "send_reaction",
+    REACTION_RECEIVED: "reaction_received",
 
-    // ===========================================================================
-    // Errors
-    // ===========================================================================
-    // reactions
-    SEND_REACTION: 'send_reaction',
-    REACTION_RECEIVED: 'reaction_received',
-    ROOM_ERROR: 'room_error',
+    ROOM_CLOSED: "room_closed",
+    ROOM_ERROR: "room_error",
 } as const;
 
 export const SOCKET_EVENTS = {
-    // ===========================================================================
-    // Socket Lifecycle
-    // ===========================================================================
-
-    CONNECT: 'connect',
-    DISCONNECT: 'disconnect',
-
-    // ===========================================================================
-    // Socket Errors
-    // ===========================================================================
-
-    ERROR: 'error',
+    CONNECT: "connect",
+    DISCONNECT: "disconnect",
 } as const;

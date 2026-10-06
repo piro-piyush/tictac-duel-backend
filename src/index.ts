@@ -5,7 +5,6 @@ import http from 'http';
 import app from './app.js';
 import { HOST, NODE_ENV, PORT } from './config/env.js';
 import Logger from './core/utils/logger.js';
-import { pool } from './db/index.js';
 import SocketService from './sockets/socket_service.js';
 
 const server = http.createServer(app);
@@ -89,8 +88,6 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
         // Close Socket.IO connections.
         await socketService.close();
 
-        // Close PostgreSQL connections.
-        await pool.end();
 
         clearTimeout(forceShutdownTimer);
 
