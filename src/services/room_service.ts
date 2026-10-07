@@ -7,6 +7,7 @@ import {
   type CreateRoomData,
   type GameResult,
   type JoinRoomData,
+  type MoveResult,
   type Room,
   type RoomPlayer,
 } from "../types/room.js";
@@ -139,32 +140,21 @@ export class RoomService {
     const room = this._requireRoom(roomCode);
 
     if (room.status !== RoomStatus.PLAYING) {
-      throw new SocketError(
-        "Round is not active",
-      );
+      throw new SocketError("Round is not active");
     }
 
     if (!room.guest) {
-      throw new SocketError(
-        "Exactly two players are required",
-      );
+      throw new SocketError("Exactly two players are required");
     }
 
-    const player = this.getPlayer(
-      room,
-      socketId,
-    );
+    const player = this.getPlayer(room, socketId);
 
     if (!player) {
-      throw new SocketError(
-        "Player is not in the room",
-      );
+      throw new SocketError("Player is not in the room");
     }
 
     const isDraw = winningIndexes.length === 0;
-
-    const gameFinished =
-      room.currentRound >= room.maxRounds;
+    const gameFinished = room.currentRound >= room.maxRounds;
 
     if (!isDraw) {
       if (room.host.id === player.id) {
@@ -178,12 +168,15 @@ export class RoomService {
       ? room.guest
       : room.host;
 
+    room.status = gameFinished
+      ? RoomStatus.FINISHED
+      : RoomStatus.ROUND_RESULT;
 
-
-    room.status = RoomStatus.ROUND_RESULT;
     room.turnPlayerId = null;
 
-    const nextTurnPlayerId = nextPlayer.id;
+    const nextTurnPlayerId = gameFinished
+      ? null
+      : nextPlayer.id;
 
     return {
       winnerId: isDraw ? null : player.id,
@@ -248,32 +241,27 @@ export class RoomService {
     );
   }
 
+
   makeMove(
     roomCode: string,
     socketId: string,
     index: number,
-  ): Room {
+  ): MoveResult {
     const room = this._requireRoom(roomCode);
 
     if (room.status !== RoomStatus.PLAYING) {
-      throw new SocketError(
-        "Round is not active",
-      );
+      throw new SocketError("Round is not active");
     }
 
     if (room.turnPlayerId !== socketId) {
-      throw new SocketError(
-        "Not your turn",
-      );
+      throw new SocketError("Not your turn");
     }
 
     if (
       index < 0 ||
       index >= GameConstants.totalCells
     ) {
-      throw new SocketError(
-        "Invalid board index",
-      );
+      throw new SocketError("Invalid board index");
     }
 
     const player = this.getPlayer(
@@ -282,9 +270,7 @@ export class RoomService {
     );
 
     if (!player) {
-      throw new SocketError(
-        "Player is not in the room",
-      );
+      throw new SocketError("Player is not in the room");
     }
 
     const opponent =
@@ -292,11 +278,15 @@ export class RoomService {
         ? room.guest
         : room.host;
 
-    room.turnPlayerId =
-      opponent?.id ?? null;
+    room.turnPlayerId = opponent?.id ?? null;
 
-    return room;
+    return {
+      index,
+      playerId: player.id,
+      turnPlayerId: room.turnPlayerId,
+    };
   }
+
 
   removeRoom(
     roomCode: string,

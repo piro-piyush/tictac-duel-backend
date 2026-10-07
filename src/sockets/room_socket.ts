@@ -137,6 +137,7 @@ function registerRoomSocket(
     ),
   );
 
+
   socket.on(
     ROOM_SOCKET_EVENTS.MAKE_MOVE,
     withSocketErrorHandling(
@@ -161,7 +162,7 @@ function registerRoomSocket(
           roomCode,
         );
 
-        const room = roomService.makeMove(
+        const moveResult = roomService.makeMove(
           roomCode,
           socket.id,
           parsed.data.index,
@@ -169,11 +170,12 @@ function registerRoomSocket(
 
         io.to(roomCode).emit(
           ROOM_SOCKET_EVENTS.MOVE_MADE,
-          room,
+          moveResult,
         );
       },
     ),
   );
+
 
   socket.on(
     ROOM_SOCKET_EVENTS.SUBMIT_GAME_RESULT,
@@ -181,8 +183,7 @@ function registerRoomSocket(
       socket,
       "Failed to submit game result",
       async (data) => {
-        const parsed =
-          submitGameResultValidator.safeParse(data);
+        const parsed = submitGameResultValidator.safeParse(data);
 
         if (!parsed.success) {
           emitValidationError(
@@ -194,32 +195,34 @@ function registerRoomSocket(
         }
 
         const roomCode = getSocketRoomCode(socket);
-        validateSocketRoom(
-          socket,
-          roomCode
-        );
 
-        const gameResult =
-          roomService.submitGameResult(
-            roomCode,
-            socket.id,
-            parsed.data.winningIndexes,
-          );
+        validateSocketRoom(socket, roomCode);
+
+        const gameResult = roomService.submitGameResult(
+          roomCode,
+          socket.id,
+          parsed.data.winningIndexes,
+        );
 
         io.to(roomCode).emit(
           ROOM_SOCKET_EVENTS.ROUND_RESULT,
           gameResult,
         );
 
+        if (gameResult.gameFinished) {
+          roomService.removeRoom(roomCode);
+        }
+
         Logger.success(
-          "Round result emitted",
+          gameResult.gameFinished
+            ? "Game finished"
+            : "Round result",
           {
             roomCode,
             winnerId: gameResult.winnerId,
-            gameFinished:
-              gameResult.gameFinished,
-            turnPlayerId:
-              gameResult.turnPlayerId,
+            gameFinished: gameResult.gameFinished,
+            turnPlayerId: gameResult.turnPlayerId,
+            nextTurnPlayerId: gameResult.nextTurnPlayerId,
           },
         );
       },
@@ -476,8 +479,7 @@ function handleSocketExit(
 
   delete socket.data.roomCode;
 
-  const result =
-    roomService.removeBySocketId(socket.id);
+  const result = roomService.removeBySocketId(socket.id);
 
   if (!result) {
     return;
@@ -546,17 +548,19 @@ function handleSocketExit(
     room.status === RoomStatus.ROUND_RESULT &&
     opponent
   ) {
+    const gameDismissed = {
+      currentRound: room.currentRound,
+      status: room.status,
+      winnerPlayerId: opponent.id,
+      exitedPlayerId: player.id,
+      reason,
+      hostPoints: room.hostPoints,
+      guestPoints: room.guestPoints,
+    };
+
     io.to(roomCode).emit(
       ROOM_SOCKET_EVENTS.GAME_DISMISSED,
-      {
-        currentRound: room.currentRound,
-        status: room.status,
-        winnerPlayerId: opponent.id,
-        exitedPlayerId: player.id,
-        reason,
-        hostPoints: room.hostPoints,
-        guestPoints: room.guestPoints,
-      },
+      gameDismissed,
     );
 
     Logger.success(
@@ -571,6 +575,8 @@ function handleSocketExit(
         guestPoints: room.guestPoints,
       },
     );
+
+    roomService.removeRoom(roomCode);
   }
 
   socket.leave(roomCode);

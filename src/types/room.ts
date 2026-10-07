@@ -74,3 +74,8 @@ export type GameResult = {
   turnPlayerId: string | null;
   nextTurnPlayerId: string | null;
 };
+export type MoveResult = {
+  index: number;
+  playerId: string;
+  turnPlayerId: string | null;
+};
