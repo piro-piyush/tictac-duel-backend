@@ -30,8 +30,6 @@ export type RoomPlayer = {
   id: string;
   name: string;
   symbol: PlayerSymbol;
-  points: number;
-  isReady: boolean;
 };
 
 export type Room = {
@@ -40,8 +38,14 @@ export type Room = {
   host: RoomPlayer;
   guest: RoomPlayer | null;
 
-  turnPlayerId: string | null;
+  hostPoints: number;
+  guestPoints: number;
 
+  hostReady: boolean;
+  guestReady: boolean;
+
+  turnPlayerId: string | null;
+  nextTurnPlayerId: string | null;
   currentRound: number;
   maxRounds: number;
 
@@ -61,4 +65,12 @@ export type CreateRoomData = {
 export type JoinRoomData = {
   roomCode: string;
   name: string;
+};
+export type GameResult = {
+  winnerId: string | null;
+  roundStatus: RoomStatus;
+  winningIndexes: number[];
+  gameFinished: boolean;
+  turnPlayerId: string | null;
+  nextTurnPlayerId: string | null;
 };

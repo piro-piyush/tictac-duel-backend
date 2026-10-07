@@ -5,6 +5,7 @@ import {
   PlayerSymbol,
   RoomStatus,
   type CreateRoomData,
+  type GameResult,
   type JoinRoomData,
   type Room,
   type RoomPlayer,
@@ -23,17 +24,25 @@ export class RoomService {
       id: socketId,
       name: data.name,
       symbol: data.symbol,
-      points: 0,
-      isReady: true,
     };
 
     const room: Room = {
       roomCode,
       host,
       guest: null,
+
+      hostPoints: 0,
+      guestPoints: 0,
+
+      hostReady: true,
+      guestReady: false,
+
       turnPlayerId: null,
+      nextTurnPlayerId: null,
+
       currentRound: 0,
       maxRounds: data.maxRounds,
+
       status: RoomStatus.WAITING,
       theme: data.theme,
       isPrivate: data.isPrivate,
@@ -67,9 +76,10 @@ export class RoomService {
       id: socketId,
       name: data.name,
       symbol: guestSymbol,
-      points: 0,
-      isReady: true,
     };
+
+    room.guestPoints = 0;
+    room.guestReady = true;
 
     return room;
   }
@@ -92,10 +102,7 @@ export class RoomService {
       );
     }
 
-    if (
-      !room.host.isReady ||
-      !room.guest.isReady
-    ) {
+    if (!room.hostReady || !room.guestReady) {
       throw new SocketError(
         "Both players must be ready",
       );
@@ -107,25 +114,97 @@ export class RoomService {
       );
     }
 
+    const turnPlayerId =
+      room.nextTurnPlayerId ??
+      room.host.id;
+
     room.currentRound += 1;
     room.status = RoomStatus.PLAYING;
-    room.turnPlayerId = room.host.id;
-    room.host.isReady = false;
-    room.guest.isReady = false;
+
+    room.turnPlayerId = turnPlayerId;
+    room.nextTurnPlayerId = null;
+
+    room.hostReady = false;
+    room.guestReady = false;
 
     return room;
   }
 
-  getRoom(roomCode: string): Room | undefined {
+
+  submitGameResult(
+    roomCode: string,
+    socketId: string,
+    winningIndexes: number[],
+  ): GameResult {
+    const room = this._requireRoom(roomCode);
+
+    if (room.status !== RoomStatus.PLAYING) {
+      throw new SocketError(
+        "Round is not active",
+      );
+    }
+
+    if (!room.guest) {
+      throw new SocketError(
+        "Exactly two players are required",
+      );
+    }
+
+    const player = this.getPlayer(
+      room,
+      socketId,
+    );
+
+    if (!player) {
+      throw new SocketError(
+        "Player is not in the room",
+      );
+    }
+
+    const isDraw = winningIndexes.length === 0;
+
+    const gameFinished =
+      room.currentRound >= room.maxRounds;
+
+    if (!isDraw) {
+      if (room.host.id === player.id) {
+        room.hostPoints += 1;
+      } else {
+        room.guestPoints += 1;
+      }
+    }
+
+    const nextPlayer = room.host.id === player.id
+      ? room.guest
+      : room.host;
+
+
+
+    room.status = RoomStatus.ROUND_RESULT;
+    room.turnPlayerId = null;
+
+    const nextTurnPlayerId = nextPlayer.id;
+
+    return {
+      winnerId: isDraw ? null : player.id,
+      roundStatus: room.status,
+      winningIndexes,
+      gameFinished,
+      turnPlayerId: null,
+      nextTurnPlayerId,
+    };
+  }
+
+  getRoom(
+    roomCode: string,
+  ): Room | undefined {
     return this.rooms.get(
       roomCode.trim().toUpperCase(),
     );
   }
 
   getPublicRooms(): Room[] {
-    return Array.from(
-      this.rooms.values(),
-    ).filter(
+    return Array.from(this.rooms.values()).filter(
       (room) =>
         !room.isPrivate &&
         room.status === RoomStatus.WAITING &&
@@ -153,17 +232,20 @@ export class RoomService {
     socketId: string,
   ): Room {
     const room = this._requireRoom(roomCode);
-    const player = this.getPlayer(room, socketId);
 
-    if (!player) {
-      throw new SocketError(
-        "Player is not in the room",
-      );
+    if (room.host.id === socketId) {
+      room.hostReady = !room.hostReady;
+      return room;
     }
 
-    player.isReady = !player.isReady;
+    if (room.guest?.id === socketId) {
+      room.guestReady = !room.guestReady;
+      return room;
+    }
 
-    return room;
+    throw new SocketError(
+      "Player is not in the room",
+    );
   }
 
   makeMove(
@@ -174,18 +256,24 @@ export class RoomService {
     const room = this._requireRoom(roomCode);
 
     if (room.status !== RoomStatus.PLAYING) {
-      throw new SocketError("Round is not active");
+      throw new SocketError(
+        "Round is not active",
+      );
     }
 
     if (room.turnPlayerId !== socketId) {
-      throw new SocketError("Not your turn");
+      throw new SocketError(
+        "Not your turn",
+      );
     }
 
     if (
       index < 0 ||
       index >= GameConstants.totalCells
     ) {
-      throw new SocketError("Invalid board index");
+      throw new SocketError(
+        "Invalid board index",
+      );
     }
 
     const player = this.getPlayer(
@@ -210,12 +298,13 @@ export class RoomService {
     return room;
   }
 
-  removeRoom(roomCode: string): boolean {
+  removeRoom(
+    roomCode: string,
+  ): boolean {
     return this.rooms.delete(
       roomCode.trim().toUpperCase(),
     );
   }
-
 
   removeBySocketId(
     socketId: string,
@@ -257,6 +346,8 @@ export class RoomService {
 
         if (room.status === RoomStatus.WAITING) {
           room.guest = null;
+          room.guestPoints = 0;
+          room.guestReady = false;
 
           return {
             room,
@@ -280,14 +371,15 @@ export class RoomService {
     return null;
   }
 
-
   private _requireRoom(
     roomCode: string,
   ): Room {
     const room = this.getRoom(roomCode);
 
     if (!room) {
-      throw new SocketError("Room not found");
+      throw new SocketError(
+        "Room not found",
+      );
     }
 
     return room;
@@ -299,15 +391,13 @@ export class RoomService {
     do {
       roomCode = Array.from(
         {
-          length:
-            GameConstants.roomCodeLength,
+          length: GameConstants.roomCodeLength,
         },
         () =>
           GameConstants.roomCodeCharacters[
           Math.floor(
             Math.random() *
-            GameConstants
-              .roomCodeCharacters.length,
+            GameConstants.roomCodeCharacters.length,
           )
           ],
       ).join("");
@@ -318,4 +408,3 @@ export class RoomService {
 }
 
 export const roomService = new RoomService();
-

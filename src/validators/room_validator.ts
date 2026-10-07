@@ -109,7 +109,6 @@ export const joinRoomValidator = z.object({
 });
 
 export const makeMoveValidator = z.object({
-    roomCode: roomCodeValidator,
     index: z
         .number()
         .int("Move index must be an integer")
@@ -121,26 +120,21 @@ export const makeMoveValidator = z.object({
 });
 
 export const setPlayerReadyValidator = z.object({
-    roomCode: roomCodeValidator,
+
 });
 
 export const sendReactionValidator = z.object({
-    roomCode: roomCodeValidator,
+
     reaction: gameReactionValidator,
 });
 
 export const submitGameResultValidator = z.object({
-    roomCode: roomCodeValidator,
-    winningIndexes: z.array(
-        z
-            .number()
-            .int("Winning index must be an integer")
-            .nonnegative("Winning index cannot be negative")
-            .max(
-                GameConstants.totalCells - 1,
-                "Winning index is outside the board",
-            ),
-    ),
+    winningIndexes: z
+        .array(z.number().int())
+        .max(
+            GameConstants.boardSize,
+            "Winning indexes cannot exceed the board size",
+        ),
 });
 
 export type CreateRoomParams = z.infer<

@@ -12,7 +12,6 @@ import {
 import ApiError from "../core/errors/api_error.js";
 import SocketError from "../core/errors/socket_error.js";
 import Logger from "../core/utils/logger.js";
-import SocketResponse from "../core/utils/socket_response.js";
 import { roomService } from "../services/room_service.js";
 import { RoomStatus } from "../types/room.js";
 import {
@@ -20,7 +19,8 @@ import {
   GameDismissReason,
   joinRoomValidator,
   makeMoveValidator,
-  sendReactionValidator
+  sendReactionValidator,
+  submitGameResultValidator,
 } from "../validators/room_validator.js";
 
 function registerRoomSocket(
@@ -55,11 +55,12 @@ function registerRoomSocket(
 
         socket.emit(
           ROOM_SOCKET_EVENTS.ROOM_CREATED,
-          SocketResponse.success(room),
+          room,
         );
       },
     ),
   );
+
 
   socket.on(
     ROOM_SOCKET_EVENTS.JOIN_ROOM,
@@ -89,12 +90,16 @@ function registerRoomSocket(
 
         socket.emit(
           ROOM_SOCKET_EVENTS.ROOM_JOINED,
-          SocketResponse.success(room),
+          room,
         );
 
         socket.to(room.roomCode).emit(
           ROOM_SOCKET_EVENTS.PLAYER_JOINED,
-          SocketResponse.success(room.guest),
+          {
+            player: room.guest,
+            points: room.guestPoints,
+            isReady: room.guestReady,
+          },
         );
       },
     ),
@@ -106,11 +111,12 @@ function registerRoomSocket(
       socket,
       "Failed to start game",
       async () => {
-        const roomCode = socket.data.roomCode;
+        const roomCode = getSocketRoomCode(socket);
 
-        if (!roomCode) {
-          throw new Error("Socket is not connected to a room");
-        }
+        validateSocketRoom(
+          socket,
+          roomCode,
+        );
 
         const room = roomService.startRound(
           roomCode,
@@ -122,17 +128,14 @@ function registerRoomSocket(
           {
             currentRound: room.currentRound,
             status: room.status,
-            hostReady: room.host.isReady,
-            guestReady: room.guest?.isReady ?? false,
+            hostReady: room.hostReady,
+            guestReady: room.guestReady,
             turnPlayerId: room.turnPlayerId,
           },
         );
       },
     ),
   );
-
-
-
 
   socket.on(
     ROOM_SOCKET_EVENTS.MAKE_MOVE,
@@ -152,9 +155,13 @@ function registerRoomSocket(
         }
 
         const roomCode = getSocketRoomCode(socket);
-        validateSocketRoom(socket, roomCode);
 
-        const move = roomService.makeMove(
+        validateSocketRoom(
+          socket,
+          roomCode,
+        );
+
+        const room = roomService.makeMove(
           roomCode,
           socket.id,
           parsed.data.index,
@@ -162,13 +169,62 @@ function registerRoomSocket(
 
         io.to(roomCode).emit(
           ROOM_SOCKET_EVENTS.MOVE_MADE,
-          SocketResponse.success(move),
+          room,
         );
       },
     ),
   );
 
+  socket.on(
+    ROOM_SOCKET_EVENTS.SUBMIT_GAME_RESULT,
+    withSocketErrorHandling(
+      socket,
+      "Failed to submit game result",
+      async (data) => {
+        const parsed =
+          submitGameResultValidator.safeParse(data);
 
+        if (!parsed.success) {
+          emitValidationError(
+            socket,
+            parsed.error.issues[0]?.message ??
+            "Invalid game result data",
+          );
+          return;
+        }
+
+        const roomCode = getSocketRoomCode(socket);
+        validateSocketRoom(
+          socket,
+          roomCode
+        );
+
+        const gameResult =
+          roomService.submitGameResult(
+            roomCode,
+            socket.id,
+            parsed.data.winningIndexes,
+          );
+
+        io.to(roomCode).emit(
+          ROOM_SOCKET_EVENTS.ROUND_RESULT,
+          gameResult,
+        );
+
+        Logger.success(
+          "Round result emitted",
+          {
+            roomCode,
+            winnerId: gameResult.winnerId,
+            gameFinished:
+              gameResult.gameFinished,
+            turnPlayerId:
+              gameResult.turnPlayerId,
+          },
+        );
+      },
+    ),
+  );
 
   socket.on(
     ROOM_SOCKET_EVENTS.SET_READY,
@@ -188,53 +244,48 @@ function registerRoomSocket(
           socket.id,
         );
 
-        const player = roomService.getPlayer(
-          room,
-          socket.id,
-        );
-
-        if (!player) {
-          throw new ApiError(
-            "Player is not a member of this room",
-            HTTP_STATUS.FORBIDDEN,
-          );
-        }
+        const isHost =
+          room.host.id === socket.id;
 
         io.to(roomCode).emit(
           ROOM_SOCKET_EVENTS.READY_UPDATED,
-          SocketResponse.success({
-            playerId: player.id,
-            isReady: player.isReady,
-          }),
+          {
+            playerId: socket.id,
+            isReady: isHost
+              ? room.hostReady
+              : room.guestReady,
+          },
         );
 
         if (
-          room.host.isReady &&
-          room.guest?.isReady &&
+          room.hostReady &&
+          room.guestReady &&
           room.status === RoomStatus.ROUND_RESULT
         ) {
-          const startedRoom = roomService.startRound(
-            roomCode,
-            room.host.id,
-          );
+          const startedRoom =
+            roomService.startRound(
+              roomCode,
+              room.host.id,
+            );
 
           io.to(roomCode).emit(
             ROOM_SOCKET_EVENTS.ROUND_STARTED,
-
-            SocketResponse.success({
-              currentRound: startedRoom.currentRound,
+            {
+              currentRound:
+                startedRoom.currentRound,
               status: startedRoom.status,
-              hostReady: startedRoom.host.isReady,
-              guestReady: startedRoom.guest?.isReady ?? false,
-              turnPlayerId: startedRoom.turnPlayerId,
-            })
+              hostReady:
+                startedRoom.hostReady,
+              guestReady:
+                startedRoom.guestReady,
+              turnPlayerId:
+                startedRoom.turnPlayerId,
+            },
           );
         }
       },
     ),
   );
-
-
 
   socket.on(
     ROOM_SOCKET_EVENTS.SEND_REACTION,
@@ -242,7 +293,8 @@ function registerRoomSocket(
       socket,
       "Failed to send reaction",
       async (data) => {
-        const parsed = sendReactionValidator.safeParse(data);
+        const parsed =
+          sendReactionValidator.safeParse(data);
 
         if (!parsed.success) {
           emitValidationError(
@@ -253,10 +305,16 @@ function registerRoomSocket(
           return;
         }
 
-        const roomCode = getSocketRoomCode(socket);
-        validateSocketRoom(socket, roomCode);
+        const roomCode =
+          getSocketRoomCode(socket);
 
-        const room = roomService.getRoom(roomCode);
+        validateSocketRoom(
+          socket,
+          roomCode,
+        );
+
+        const room =
+          roomService.getRoom(roomCode);
 
         if (!room) {
           throw new ApiError(
@@ -265,10 +323,11 @@ function registerRoomSocket(
           );
         }
 
-        const sender = roomService.getPlayer(
-          room,
-          socket.id,
-        );
+        const sender =
+          roomService.getPlayer(
+            room,
+            socket.id,
+          );
 
         if (!sender) {
           throw new ApiError(
@@ -291,11 +350,11 @@ function registerRoomSocket(
 
         io.to(roomCode).emit(
           ROOM_SOCKET_EVENTS.REACTION_RECEIVED,
-          SocketResponse.success({
+          {
             senderId: sender.id,
             targetPlayerId: target.id,
             reaction: parsed.data.reaction,
-          }),
+          },
         );
       },
     ),
@@ -356,18 +415,14 @@ function handleSocketError(
   if (error instanceof SocketError) {
     socket.emit(
       ROOM_SOCKET_EVENTS.ROOM_ERROR,
-      SocketResponse.error(
-        error.message,
-      ),
+      error.message,
     );
     return;
   }
 
   socket.emit(
     ROOM_SOCKET_EVENTS.ROOM_ERROR,
-    SocketResponse.error(
-      fallbackMessage,
-    ),
+    fallbackMessage,
   );
 }
 
@@ -377,13 +432,9 @@ function emitValidationError(
 ): void {
   socket.emit(
     ROOM_SOCKET_EVENTS.ROOM_ERROR,
-    SocketResponse.error(
-      message,
-    ),
+    message,
   );
 }
-
-
 
 function getSocketRoomCode(
   socket: Socket,
@@ -412,7 +463,6 @@ function validateSocketRoom(
   }
 }
 
-
 function handleSocketExit(
   io: Server,
   socket: Socket,
@@ -421,33 +471,15 @@ function handleSocketExit(
   const roomCode = socket.data.roomCode;
 
   if (!roomCode) {
-    // Logger.info(
-    //   "Socket exited without an active room",
-    //   {
-    //     socketId: socket.id,
-    //     reason,
-    //   },
-    // );
-
     return;
   }
 
   delete socket.data.roomCode;
 
-  const result = roomService.removeBySocketId(
-    socket.id,
-  );
+  const result =
+    roomService.removeBySocketId(socket.id);
 
   if (!result) {
-    // Logger.info(
-    //   "Socket exit ignored because player was not found",
-    //   {
-    //     socketId: socket.id,
-    //     roomCode,
-    //     reason,
-    //   },
-    // );
-
     return;
   }
 
@@ -474,10 +506,7 @@ function handleSocketExit(
     if (opponent) {
       io.to(roomCode).emit(
         ROOM_SOCKET_EVENTS.ROOM_CLOSED,
-        SocketResponse.success({
-          playerId: player.id,
-          reason,
-        }),
+        reason,
       );
     }
 
@@ -501,8 +530,7 @@ function handleSocketExit(
   ) {
     io.to(roomCode).emit(
       ROOM_SOCKET_EVENTS.PLAYER_LEFT,
-      SocketResponse.success(player.id,
-      ),
+      player.id,
     );
 
     Logger.info(
@@ -520,15 +548,15 @@ function handleSocketExit(
   ) {
     io.to(roomCode).emit(
       ROOM_SOCKET_EVENTS.GAME_DISMISSED,
-      SocketResponse.success({
+      {
         currentRound: room.currentRound,
         status: room.status,
         winnerPlayerId: opponent.id,
         exitedPlayerId: player.id,
         reason,
-        hostPoints: room.host.points,
-        guestPoints: room.guest?.points ?? 0,
-      }),
+        hostPoints: room.hostPoints,
+        guestPoints: room.guestPoints,
+      },
     );
 
     Logger.success(
@@ -539,18 +567,13 @@ function handleSocketExit(
         winnerPlayerId: opponent.id,
         exitedPlayerId: player.id,
         reason,
-        hostPoints: room.host.points,
-        guestPoints: room.guest?.points ?? 0,
+        hostPoints: room.hostPoints,
+        guestPoints: room.guestPoints,
       },
     );
   }
 
   socket.leave(roomCode);
 }
-
-
-
-
-
 
 export default registerRoomSocket;
