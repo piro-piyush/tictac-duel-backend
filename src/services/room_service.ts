@@ -31,10 +31,10 @@ export class RoomService {
       roomCode,
       host,
       guest: null,
-      turnSocketId: null,
+      turnPlayerId: null,
       currentRound: 0,
       maxRounds: data.maxRounds,
-      roundStatus: RoomStatus.WAITING,
+      status: RoomStatus.WAITING,
       theme: data.theme,
       isPrivate: data.isPrivate,
     };
@@ -54,7 +54,7 @@ export class RoomService {
       throw new SocketError("Room is full");
     }
 
-    if (room.roundStatus !== RoomStatus.WAITING) {
+    if (room.status !== RoomStatus.WAITING) {
       throw new SocketError("Game has already started");
     }
 
@@ -108,8 +108,8 @@ export class RoomService {
     }
 
     room.currentRound += 1;
-    room.roundStatus = RoomStatus.PLAYING;
-    room.turnSocketId = room.host.id;
+    room.status = RoomStatus.PLAYING;
+    room.turnPlayerId = room.host.id;
     room.host.isReady = false;
     room.guest.isReady = false;
 
@@ -128,7 +128,7 @@ export class RoomService {
     ).filter(
       (room) =>
         !room.isPrivate &&
-        room.roundStatus === RoomStatus.WAITING &&
+        room.status === RoomStatus.WAITING &&
         room.guest === null,
     );
   }
@@ -173,11 +173,11 @@ export class RoomService {
   ): Room {
     const room = this._requireRoom(roomCode);
 
-    if (room.roundStatus !== RoomStatus.PLAYING) {
+    if (room.status !== RoomStatus.PLAYING) {
       throw new SocketError("Round is not active");
     }
 
-    if (room.turnSocketId !== socketId) {
+    if (room.turnPlayerId !== socketId) {
       throw new SocketError("Not your turn");
     }
 
@@ -204,7 +204,7 @@ export class RoomService {
         ? room.guest
         : room.host;
 
-    room.turnSocketId =
+    room.turnPlayerId =
       opponent?.id ?? null;
 
     return room;
@@ -230,7 +230,7 @@ export class RoomService {
         const player = room.host;
         const opponent = room.guest;
 
-        if (room.roundStatus === RoomStatus.WAITING) {
+        if (room.status === RoomStatus.WAITING) {
           this.rooms.delete(roomCode);
 
           return {
@@ -241,7 +241,7 @@ export class RoomService {
           };
         }
 
-        room.roundStatus = RoomStatus.ROUND_RESULT;
+        room.status = RoomStatus.ROUND_RESULT;
 
         return {
           room,
@@ -255,7 +255,7 @@ export class RoomService {
         const player = room.guest;
         const opponent = room.host;
 
-        if (room.roundStatus === RoomStatus.WAITING) {
+        if (room.status === RoomStatus.WAITING) {
           room.guest = null;
 
           return {
@@ -266,7 +266,7 @@ export class RoomService {
           };
         }
 
-        room.roundStatus = RoomStatus.ROUND_RESULT;
+        room.status = RoomStatus.ROUND_RESULT;
 
         return {
           room,

@@ -4,7 +4,7 @@ export const ROOM_SOCKET_EVENTS = {
     ROOM_CREATED: "room_created",
 
     JOIN_ROOM: "join_room",
-    ROOM_CONNECTED: "room_connected",
+    ROOM_JOINED: "room_joined",
 
     PLAYER_JOINED: "player_joined",
     PLAYER_LEFT: "player_left",

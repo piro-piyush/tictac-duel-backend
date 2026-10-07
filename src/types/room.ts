@@ -36,13 +36,16 @@ export type RoomPlayer = {
 
 export type Room = {
   roomCode: string;
+
   host: RoomPlayer;
   guest: RoomPlayer | null;
 
-  turnSocketId: string | null;
+  turnPlayerId: string | null;
+
   currentRound: number;
   maxRounds: number;
-  roundStatus: RoomStatus;
+
+  status: RoomStatus;
   theme: RoomTheme;
   isPrivate: boolean;
 };

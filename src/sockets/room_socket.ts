@@ -88,7 +88,7 @@ function registerRoomSocket(
         socket.data.roomCode = room.roomCode;
 
         socket.emit(
-          ROOM_SOCKET_EVENTS.ROOM_CONNECTED,
+          ROOM_SOCKET_EVENTS.ROOM_JOINED,
           SocketResponse.success(room),
         );
 
@@ -106,12 +106,11 @@ function registerRoomSocket(
       socket,
       "Failed to start game",
       async () => {
-        const roomCode = getSocketRoomCode(socket);
+        const roomCode = socket.data.roomCode;
 
-        validateSocketRoom(
-          socket,
-          roomCode,
-        );
+        if (!roomCode) {
+          throw new Error("Socket is not connected to a room");
+        }
 
         const room = roomService.startRound(
           roomCode,
@@ -120,13 +119,13 @@ function registerRoomSocket(
 
         io.to(roomCode).emit(
           ROOM_SOCKET_EVENTS.ROUND_STARTED,
-          SocketResponse.success({
+          {
             currentRound: room.currentRound,
-            roundStatus: room.roundStatus,
+            status: room.status,
             hostReady: room.host.isReady,
             guestReady: room.guest?.isReady ?? false,
-            turnPlayerId: room.turnSocketId,
-          })
+            turnPlayerId: room.turnPlayerId,
+          },
         );
       },
     ),
@@ -212,7 +211,7 @@ function registerRoomSocket(
         if (
           room.host.isReady &&
           room.guest?.isReady &&
-          room.roundStatus === RoomStatus.ROUND_RESULT
+          room.status === RoomStatus.ROUND_RESULT
         ) {
           const startedRoom = roomService.startRound(
             roomCode,
@@ -224,10 +223,10 @@ function registerRoomSocket(
 
             SocketResponse.success({
               currentRound: startedRoom.currentRound,
-              roundStatus: startedRoom.roundStatus,
+              status: startedRoom.status,
               hostReady: startedRoom.host.isReady,
               guestReady: startedRoom.guest?.isReady ?? false,
-              turnPlayerId: startedRoom.turnSocketId,
+              turnPlayerId: startedRoom.turnPlayerId,
             })
           );
         }
@@ -466,7 +465,7 @@ function handleSocketExit(
       roomCode,
       playerId: player.id,
       reason,
-      roundStatus: room.roundStatus,
+      status: room.status,
       roomClosed,
     },
   );
@@ -497,14 +496,13 @@ function handleSocketExit(
   }
 
   if (
-    room.roundStatus === RoomStatus.WAITING &&
+    room.status === RoomStatus.WAITING &&
     opponent
   ) {
     io.to(roomCode).emit(
       ROOM_SOCKET_EVENTS.PLAYER_LEFT,
-      SocketResponse.success({
-        playerId: player.id,
-      }),
+      SocketResponse.success(player.id,
+      ),
     );
 
     Logger.info(
@@ -517,14 +515,14 @@ function handleSocketExit(
   }
 
   if (
-    room.roundStatus === RoomStatus.ROUND_RESULT &&
+    room.status === RoomStatus.ROUND_RESULT &&
     opponent
   ) {
     io.to(roomCode).emit(
       ROOM_SOCKET_EVENTS.GAME_DISMISSED,
       SocketResponse.success({
         currentRound: room.currentRound,
-        roundStatus: room.roundStatus,
+        status: room.status,
         winnerPlayerId: opponent.id,
         exitedPlayerId: player.id,
         reason,
