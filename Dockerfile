@@ -10,4 +10,4 @@ RUN npm ci
 
 COPY . .
 
-CMD ["sh", "-c", "npm run db:migrate && npm start"]
+CMD ["npm", "start"]

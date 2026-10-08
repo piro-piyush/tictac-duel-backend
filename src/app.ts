@@ -9,7 +9,6 @@ import { HTTP_STATUS } from './core/constants/http_status.js';
 import ApiError from './core/errors/api_error.js';
 import Logger from './core/utils/logger.js';
 import Response from './core/utils/response.js';
-import playerRoutes from './routes/player_routes.js';
 import roomRoutes from './routes/room_routes.js';
 
 const app = express();
@@ -84,7 +83,6 @@ app.get(
 // ============================================================================
 
 app.use('/api/rooms', roomRoutes);
-app.use('/api/players', playerRoutes);
 
 // ============================================================================
 // 404 Handler
