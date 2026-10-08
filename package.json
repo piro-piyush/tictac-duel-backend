@@ -5,10 +5,7 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "npx nodemon",
-    "start": "tsx src/index.ts",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push --config=./drizzle.config.ts"
+    "start": "tsx src/index.ts"
   },
   "keywords": [
     "tictactoe",
@@ -24,10 +21,8 @@
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^18.0.2",
-    "drizzle-orm": "^0.45.3",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
-    "pg": "^8.23.0",
     "socket.io": "^4.8.3",
     "uuid": "^14.0.2",
     "zod": "^4.5.4"
@@ -36,8 +31,6 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/node": "^24.19.0",
-    "@types/pg": "^8.23.1",
-    "drizzle-kit": "^0.31.11",
     "nodemon": "^3.1.14",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
