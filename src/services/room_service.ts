@@ -228,12 +228,12 @@ export class RoomService {
     const room = this._requireRoom(roomCode);
 
     if (room.host.id === socketId) {
-      room.hostReady = !room.hostReady;
+      room.hostReady = true;
       return room;
     }
 
     if (room.guest?.id === socketId) {
-      room.guestReady = !room.guestReady;
+      room.guestReady = true;
       return room;
     }
 

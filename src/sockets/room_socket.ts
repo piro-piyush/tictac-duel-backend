@@ -115,12 +115,12 @@ function registerRoomSocket(
 
         validateSocketRoom(
           socket,
-          roomCode,
+          roomCode
         );
 
         const room = roomService.startRound(
           roomCode,
-          socket.id,
+          socket.id
         );
 
         io.to(roomCode).emit(
@@ -130,7 +130,7 @@ function registerRoomSocket(
             status: room.status,
             hostReady: room.hostReady,
             guestReady: room.guestReady,
-            turnPlayerId: room.turnPlayerId,
+            turnPlayerId: room.turnPlayerId
           },
         );
       },
@@ -221,8 +221,6 @@ function registerRoomSocket(
             roomCode,
             winnerId: gameResult.winnerId,
             gameFinished: gameResult.gameFinished,
-
-            // nextTurnPlayerId: gameResult.nextTurnPlayerId,
           },
         );
       },
@@ -274,15 +272,11 @@ function registerRoomSocket(
           io.to(roomCode).emit(
             ROOM_SOCKET_EVENTS.ROUND_STARTED,
             {
-              currentRound:
-                startedRoom.currentRound,
+              currentRound: startedRoom.currentRound,
               status: startedRoom.status,
-              hostReady:
-                startedRoom.hostReady,
-              guestReady:
-                startedRoom.guestReady,
-              turnPlayerId:
-                startedRoom.turnPlayerId,
+              hostReady: startedRoom.hostReady,
+              guestReady: startedRoom.guestReady,
+              turnPlayerId: startedRoom.turnPlayerId
             },
           );
         }
