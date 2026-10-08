@@ -19,7 +19,7 @@ export type RoomTheme =
 export const RoomStatus = {
   WAITING: "waiting",
   PLAYING: "playing",
-  ROUND_RESULT: "roundResult",
+  RESULT: "result",
   FINISHED: "finished",
 } as const;
 
@@ -68,11 +68,10 @@ export type JoinRoomData = {
 };
 export type GameResult = {
   winnerId: string | null;
-  roundStatus: RoomStatus;
+  status: RoomStatus;
   winningIndexes: number[];
   gameFinished: boolean;
-  turnPlayerId: string | null;
-  nextTurnPlayerId: string | null;
+  // nextTurnPlayerId: string | null;
 };
 export type MoveResult = {
   index: number;

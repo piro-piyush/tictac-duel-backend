@@ -221,8 +221,8 @@ function registerRoomSocket(
             roomCode,
             winnerId: gameResult.winnerId,
             gameFinished: gameResult.gameFinished,
-            turnPlayerId: gameResult.turnPlayerId,
-            nextTurnPlayerId: gameResult.nextTurnPlayerId,
+
+            // nextTurnPlayerId: gameResult.nextTurnPlayerId,
           },
         );
       },
@@ -263,7 +263,7 @@ function registerRoomSocket(
         if (
           room.hostReady &&
           room.guestReady &&
-          room.status === RoomStatus.ROUND_RESULT
+          room.status === RoomStatus.RESULT
         ) {
           const startedRoom =
             roomService.startRound(
@@ -506,7 +506,7 @@ function handleSocketExit(
 
   if (roomClosed) {
     if (opponent) {
-      io.to(roomCode).emit(
+      socket.to(roomCode).emit(
         ROOM_SOCKET_EVENTS.ROOM_CLOSED,
         reason,
       );
@@ -545,7 +545,7 @@ function handleSocketExit(
   }
 
   if (
-    room.status === RoomStatus.ROUND_RESULT &&
+    room.status === RoomStatus.RESULT &&
     opponent
   ) {
     const gameDismissed = {

@@ -164,27 +164,28 @@ export class RoomService {
       }
     }
 
-    const nextPlayer = room.host.id === player.id
-      ? room.guest
-      : room.host;
+    const opponent =
+      room.host.id === player.id
+        ? room.guest
+        : room.host;
 
     room.status = gameFinished
       ? RoomStatus.FINISHED
-      : RoomStatus.ROUND_RESULT;
+      : RoomStatus.RESULT;
 
     room.turnPlayerId = null;
 
-    const nextTurnPlayerId = gameFinished
+    room.nextTurnPlayerId = gameFinished
       ? null
-      : nextPlayer.id;
+      : isDraw
+        ? opponent.id
+        : player.id;
 
     return {
       winnerId: isDraw ? null : player.id,
-      roundStatus: room.status,
+      status: room.status,
       winningIndexes,
       gameFinished,
-      turnPlayerId: null,
-      nextTurnPlayerId,
     };
   }
 
@@ -320,7 +321,7 @@ export class RoomService {
           };
         }
 
-        room.status = RoomStatus.ROUND_RESULT;
+        room.status = RoomStatus.RESULT;
 
         return {
           room,
@@ -347,7 +348,7 @@ export class RoomService {
           };
         }
 
-        room.status = RoomStatus.ROUND_RESULT;
+        room.status = RoomStatus.RESULT;
 
         return {
           room,
