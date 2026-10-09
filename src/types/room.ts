@@ -1,4 +1,8 @@
 
+// =============================================================================
+// PLAYER SYMBOL
+// =============================================================================
+
 export const PlayerSymbol = {
   X: "x",
   O: "o",
@@ -6,6 +10,10 @@ export const PlayerSymbol = {
 
 export type PlayerSymbol =
   (typeof PlayerSymbol)[keyof typeof PlayerSymbol];
+
+// =============================================================================
+// ROOM THEME
+// =============================================================================
 
 export const RoomTheme = {
   CLASSIC: "classic",
@@ -16,6 +24,10 @@ export const RoomTheme = {
 export type RoomTheme =
   (typeof RoomTheme)[keyof typeof RoomTheme];
 
+// =============================================================================
+// ROOM STATUS
+// =============================================================================
+
 export const RoomStatus = {
   WAITING: "waiting",
   PLAYING: "playing",
@@ -25,6 +37,10 @@ export const RoomStatus = {
 
 export type RoomStatus =
   (typeof RoomStatus)[keyof typeof RoomStatus];
+
+// =============================================================================
+// ROOM MODELS
+// =============================================================================
 
 export type RoomPlayer = {
   id: string;
@@ -46,6 +62,7 @@ export type Room = {
 
   turnPlayerId: string | null;
   nextTurnPlayerId: string | null;
+
   currentRound: number;
   maxRounds: number;
 
@@ -53,6 +70,10 @@ export type Room = {
   theme: RoomTheme;
   isPrivate: boolean;
 };
+
+// =============================================================================
+// ROOM REQUEST DATA
+// =============================================================================
 
 export type CreateRoomData = {
   name: string;
@@ -66,13 +87,22 @@ export type JoinRoomData = {
   roomCode: string;
   name: string;
 };
+
+// =============================================================================
+// GAME RESULT
+// =============================================================================
+
 export type GameResult = {
   winnerId: string | null;
   status: RoomStatus;
   winningIndexes: number[];
   gameFinished: boolean;
-  // nextTurnPlayerId: string | null;
 };
+
+// =============================================================================
+// MOVE RESULT
+// =============================================================================
+
 export type MoveResult = {
   index: number;
   playerId: string;

@@ -1,5 +1,5 @@
 {
-  "name": "tictac-duel-backend",
+  "name": "Tic Tac Duel Backend",
   "version": "2.0.0",
   "description": "Backend API for TicTac Duel",
   "main": "src/index.ts",

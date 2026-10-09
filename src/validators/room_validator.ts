@@ -1,14 +1,20 @@
 
 import { z } from "zod";
+
 import {
     GameConstants,
     RoomCodePattern,
 } from "../core/constants/game_constants.js";
+
 import {
     PlayerSymbol,
     RoomStatus,
     RoomTheme,
 } from "../types/room.js";
+
+// =============================================================================
+// CONSTANTS & TYPES
+// =============================================================================
 
 export const GameDismissReason = {
     OPPONENT_DISCONNECTED: "opponentDisconnected",
@@ -18,19 +24,9 @@ export const GameDismissReason = {
 export type GameDismissReason =
     (typeof GameDismissReason)[keyof typeof GameDismissReason];
 
-export const GameReaction = {
-    LAUGH: "laugh",
-    LOVE: "love",
-    ANGRY: "angry",
-    WOW: "wow",
-    FIRE: "fire",
-    CLAP: "clap",
-    PARTY: "party",
-    COOL: "cool",
-} as const;
-
-export type GameReaction =
-    (typeof GameReaction)[keyof typeof GameReaction];
+// =============================================================================
+// ENUM VALIDATORS
+// =============================================================================
 
 export const playerSymbolValidator = z.enum(
     Object.values(PlayerSymbol) as [
@@ -60,12 +56,9 @@ export const gameDismissReasonValidator = z.enum(
     ],
 );
 
-export const gameReactionValidator = z.enum(
-    Object.values(GameReaction) as [
-        GameReaction,
-        ...GameReaction[],
-    ],
-);
+// =============================================================================
+// PRIMITIVE VALIDATORS
+// =============================================================================
 
 export const playerNameValidator = z
     .string()
@@ -96,6 +89,21 @@ export const roundsValidator = z
         `Rounds must be one of ${GameConstants.roundOptions.join(", ")}`,
     );
 
+export const moveIndexValidator = z
+    .number()
+    .int("Move index must be an integer")
+    .nonnegative("Move index cannot be negative")
+    .max(
+        GameConstants.totalCells - 1,
+        "Move index is outside the board",
+    );
+
+export const reactionValidator = z.emoji();
+
+// =============================================================================
+// REQUEST VALIDATORS
+// =============================================================================
+
 export const createRoomValidator = z.object({
     name: playerNameValidator,
     symbol: playerSymbolValidator,
@@ -103,55 +111,40 @@ export const createRoomValidator = z.object({
     theme: roomThemeValidator,
     isPrivate: z.boolean(),
 });
+
 export const joinRoomValidator = z.object({
     roomCode: roomCodeValidator,
     name: playerNameValidator,
 });
 
 export const makeMoveValidator = z.object({
-    index: z
-        .number()
-        .int("Move index must be an integer")
-        .nonnegative("Move index cannot be negative")
-        .max(
-            GameConstants.totalCells - 1,
-            "Move index is outside the board",
-        ),
-});
-
-export const setPlayerReadyValidator = z.object({
-
+    index: moveIndexValidator,
 });
 
 export const sendReactionValidator = z.object({
-
-    reaction: gameReactionValidator,
+    reaction: reactionValidator,
 });
 
 export const submitGameResultValidator = z.object({
     winningIndexes: z
-        .array(z.number().int())
+        .array(moveIndexValidator)
         .max(
             GameConstants.boardSize,
             "Winning indexes cannot exceed the board size",
         ),
 });
 
-export type CreateRoomParams = z.infer<
-    typeof createRoomValidator
->;
+// =============================================================================
+// INFERRED REQUEST TYPES
+// =============================================================================
 
-export type JoinRoomParams = z.infer<
-    typeof joinRoomValidator
->;
+export type CreateRoomParams = z.infer<typeof createRoomValidator>;
 
-export type MakeMoveParams = z.infer<
-    typeof makeMoveValidator
->;
+export type JoinRoomParams = z.infer<typeof joinRoomValidator>;
 
-export type SetPlayerReadyParams = z.infer<
-    typeof setPlayerReadyValidator
->;
+export type MakeMoveParams = z.infer<typeof makeMoveValidator>;
+
+export type SendReactionParams = z.infer<typeof sendReactionValidator>;
 
 export type SubmitGameResultParams = z.infer<
     typeof submitGameResultValidator
