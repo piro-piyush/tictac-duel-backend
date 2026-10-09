@@ -5,6 +5,9 @@ import express, {
 } from 'express';
 import helmet from 'helmet';
 
+
+import { APP_NAME, APP_VERSION } from './config/app.js';
+import { NODE_ENV } from './config/env.js';
 import { HTTP_STATUS } from './core/constants/http_status.js';
 import ApiError from './core/errors/api_error.js';
 import Logger from './core/utils/logger.js';
@@ -50,33 +53,43 @@ app.use(
 // ============================================================================
 // Health & Information
 // ============================================================================
+app.get("/", (_req: Request, res: ExpressResponse) => {
+  return Response.success(res, {
+    message: `${APP_NAME} is running`,
+  });
+});
 
-app.get(
-  '/',
-  (_req: Request, res: ExpressResponse) => {
-    return Response.success(res, {
-      message: 'Tic Tac Duel server is running',
-    });
-  },
-);
+app.get("/health", (_req: Request, res: ExpressResponse) => {
+  return Response.success(res, {
+    message: `${APP_NAME} is healthy`,
+    data: {
+      service: APP_NAME,
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      uptime: Math.floor(process.uptime()),
+    },
+  });
+});
 
-app.get(
-  '/health',
-  (_req: Request, res: ExpressResponse) => {
-    return Response.success(res, {
-      message: 'Server is healthy',
-    });
-  },
-);
+app.get("/api", (_req: Request, res: ExpressResponse) => {
+  return Response.success(res, {
+    message: `Welcome to ${APP_NAME}`,
+    data: {
+      name: APP_NAME,
+      version: APP_VERSION,
+      description: "Real-time multiplayer Tic-Tac-Toe game API",
+      environment: NODE_ENV,
+      endpoints: {
+        root: "/",
+        health: "/health",
+        rooms: "/api/rooms",
+        socket: "/socket.io/",
+      },
+    },
+  });
+});
 
-app.get(
-  '/api',
-  (_req: Request, res: ExpressResponse) => {
-    return Response.success(res, {
-      message: 'Tic Tac Duel API',
-    });
-  },
-);
+
 
 // ============================================================================
 // Routes
